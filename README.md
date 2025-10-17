@@ -1,3 +1,2 @@
 # ReceiptManager
-115A 
->:D
+115A :(
