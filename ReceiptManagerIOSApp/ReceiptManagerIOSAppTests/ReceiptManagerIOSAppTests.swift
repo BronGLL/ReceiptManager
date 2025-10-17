@@ -1,14 +1,14 @@
 //
-//  ReceiptManagerTests.swift
-//  ReceiptManagerTests
+//  ReceiptManagerIOSAppTests.swift
+//  ReceiptManagerIOSAppTests
 //
 //  Created by Bronsen Laine-Lasala on 10/17/25.
 //
 
 import XCTest
-@testable import ReceiptManager
+@testable import ReceiptManagerIOSApp
 
-final class ReceiptManagerTests: XCTestCase {
+final class ReceiptManagerIOSAppTests: XCTestCase {
 
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.

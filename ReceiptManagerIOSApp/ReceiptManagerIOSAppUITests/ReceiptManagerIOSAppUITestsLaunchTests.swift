@@ -1,13 +1,13 @@
 //
-//  ReceiptManagerUITestsLaunchTests.swift
-//  ReceiptManagerUITests
+//  ReceiptManagerIOSAppUITestsLaunchTests.swift
+//  ReceiptManagerIOSAppUITests
 //
 //  Created by Bronsen Laine-Lasala on 10/17/25.
 //
 
 import XCTest
 
-final class ReceiptManagerUITestsLaunchTests: XCTestCase {
+final class ReceiptManagerIOSAppUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true
