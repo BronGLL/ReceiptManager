@@ -1,0 +1,14 @@
+# Ignore Xcode user data
+**/*.xcuserdatad/
+**/*.xcuserdata/
+**/xcuserdata/
+
+# Ignore workspace user data
+**/*.xcworkspace/xcuserdata/
+
+# Ignore macOS metadata
+.DS_Store
+
+# Ignore plist configuration files (like Firebase)
+**/GoogleService-Info.plist
+**/Info.plist
