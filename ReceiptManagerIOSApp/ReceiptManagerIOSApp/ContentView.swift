@@ -6,28 +6,49 @@
 //
 
 import SwiftUI
+import FirebaseAuth
 
 struct ContentView: View {
     @State private var hasCompletedLanding = false
+    @State private var session = SessionViewModel()
 
     var body: some View {
         Group {
-            if hasCompletedLanding {
-                mainTabs
-            } else {
-                LandingView {
-                    withAnimation(.easeInOut) {
-                        hasCompletedLanding = true
+            switch session.state {
+            case .loading:
+                ProgressView().controlSize(.large)
+
+            case .signedOut, .error:
+                SignInView(session: session)
+
+            case .signedIn:
+                if hasCompletedLanding {
+                    mainTabs
+                } else {
+                    LandingView {
+                        withAnimation(.easeInOut) {
+                            hasCompletedLanding = true
+                        }
                     }
                 }
             }
         }
+        .animation(.default, value: session.stateDisplayKey)
     }
 
     private var mainTabs: some View {
         TabView {
             NavigationStack {
                 ScanView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button {
+                                Task { await session.signOut() }
+                            } label: {
+                                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                            }
+                        }
+                    }
             }
             .tabItem {
                 Label("Scan", systemImage: "camera.viewfinder")
@@ -49,6 +70,18 @@ struct ContentView: View {
         }
     }
 }
+
+private extension SessionViewModel {
+    var stateDisplayKey: String {
+        switch state {
+        case .loading: return "loading"
+        case .signedOut: return "signedOut"
+        case .signedIn: return "signedIn"
+        case .error: return "error"
+        }
+    }
+}
+
 
 private struct LandingView: View {
     var onContinue: () -> Void
