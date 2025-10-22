@@ -6,9 +6,15 @@
 //
 
 import SwiftUI
+import FirebaseCore
+import FirebaseAuth
 
 @main
 struct ReceiptManagerIOSAppApp: App {
+    init() {
+        // Configuring the Firebase at launch
+        FirebaseApp.configure()
+    }
     var body: some Scene {
         WindowGroup {
             ContentView()
