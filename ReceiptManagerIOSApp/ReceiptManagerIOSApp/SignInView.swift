@@ -23,6 +23,11 @@ struct SignInView: View {
                         .keyboardType(.emailAddress)
                         .autocorrectionDisabled()
                     SecureField("Password", text: $password)
+                        .onSubmit {
+                            Task { await runBusy {
+                                await session.signIn(email: trimmedEmail, password: password)
+                            } }
+                        }
                 }
 
                 Section {
