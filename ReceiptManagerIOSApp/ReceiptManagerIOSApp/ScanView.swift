@@ -14,26 +14,74 @@ struct ScanView: View {
     @State private var capturedImage: UIImage?
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack {
             if showCamera {
-                ZStack {
-                    // Live camera preview
-                    CameraPreviewView(session: camera.session)
-                        .ignoresSafeArea(edges: .bottom)
+                // Full-screen camera preview
+                CameraPreviewView(session: camera.session)
+                    .ignoresSafeArea(.all)
 
-                    // Centering "+" reticle
-                    CenterReticle()
+                // Center reticle
+                CenterReticle()
 
-                    // Dark background reminder
-                    VStack {
-                        Text("Tip: Place receipt on a dark background for best results.")
-                            .font(.subheadline)
-                            .padding(10)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .padding(.top, 16)
-                        Spacer()
-                    }
+                // Tip at the top, within safe area
+                VStack {
+                    Text("Tip: Place receipt on a dark background for best results.")
+                        .font(.subheadline)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.top, 12)
+                    Spacer()
                 }
+                
+
+                // Bottom controls: Capture centered, Close in bottom-right
+                VStack {
+                    Spacer()
+
+                    ZStack {
+                        // Capture button centered
+                        Button {
+                            Task {
+                                do {
+                                    let image = try await camera.capturePhoto()
+                                    capturedImage = image
+                                    camera.stopSession()
+                                } catch {
+                                    // Handle error if desired
+                                }
+                            }
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(.white)
+                                    .frame(width: 66, height: 66)
+                                Circle()
+                                    .stroke(.white.opacity(0.8), lineWidth: 2)
+                                    .frame(width: 74, height: 74)
+                            }
+                        }
+                        .accessibilityLabel("Capture Photo")
+
+                        // Close button bottom-right
+                        HStack {
+                            Spacer()
+                            Button {
+                                withAnimation { showCamera = false }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 28, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .shadow(radius: 2)
+                            }
+                            .accessibilityLabel("Close")
+                        }
+                    }
+                    .padding(.horizontal, 34)
+                    .padding(.bottom, 24) // lift above home indicator a bit
+                }
+                
+
                 .onAppear {
                     Task {
                         await camera.checkPermissions()
@@ -46,42 +94,12 @@ struct ScanView: View {
                 .onDisappear {
                     camera.stopSession()
                 }
-                .toolbar {
-                    ToolbarItemGroup(placement: .bottomBar) {
-                        Button {
-                            Task {
-                                do {
-                                    let image = try await camera.capturePhoto()
-                                    capturedImage = image
-                                    // Optional: stop session when captured
-                                    camera.stopSession()
-                                } catch {
-                                    // You can handle error UI if desired
-                                }
-                            }
-                        } label: {
-                            ZStack {
-                                Circle()
-                                    .fill(.white)
-                                    .frame(width: 66, height: 66)
-                                Circle()
-                                    .stroke(.black.opacity(0.8), lineWidth: 2)
-                                    .frame(width: 74, height: 74)
-                            }
-                        }
-                        .accessibilityLabel("Capture Photo")
-
-                        Spacer()
-
-                        Button {
-                            withAnimation { showCamera = false }
-                        } label: {
-                            Label("Close", systemImage: "xmark.circle.fill")
-                        }
-                        .tint(.primary)
-                    }
-                }
+                // Fully hide bars while camera is visible
+                .navigationBarBackButtonHidden(true)
+                .toolbar(.hidden, for: .navigationBar)
+                .toolbar(.hidden, for: .tabBar)
             } else {
+                // Landing content when camera is not shown
                 VStack(spacing: 16) {
                     Image(systemName: "camera.viewfinder")
                         .resizable()
@@ -107,23 +125,12 @@ struct ScanView: View {
                     .buttonStyle(.borderedProminent)
                     .padding(.horizontal)
 
-                    if let image = capturedImage {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Last Capture")
-                                .font(.headline)
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .strokeBorder(.quaternary, lineWidth: 1)
-                                )
-                        }
-                        .padding(.horizontal)
-                    }
+                    
                 }
                 .padding()
+                .navigationBarBackButtonHidden(false)
+                .toolbar(.automatic, for: .navigationBar)
+                .toolbar(.automatic, for: .tabBar)
             }
         }
         .navigationTitle("Scan")
@@ -143,11 +150,9 @@ private struct CenterReticle: View {
             let color: Color = .white
 
             ZStack {
-                // Vertical line
                 Rectangle()
                     .fill(color.opacity(0.9))
                     .frame(width: thickness, height: 60)
-                // Horizontal line
                 Rectangle()
                     .fill(color.opacity(0.9))
                     .frame(width: 60, height: thickness)

@@ -5,7 +5,7 @@
 
 # Ignore workspace user data
 **/*.xcworkspace/xcuserdata/
-
+ReceiptManagerIOSApp/ReceiptManagerIOSApp.xcodeproj/xcshareddata/
 # Ignore macOS metadata
 .DS_Store
 

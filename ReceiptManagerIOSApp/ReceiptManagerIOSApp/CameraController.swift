@@ -29,10 +29,8 @@ final class CameraController: NSObject, ObservableObject {
 
     let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "CameraController.sessionQueue")
-
     private let photoOutput = AVCapturePhotoOutput()
     private var videoDeviceInput: AVCaptureDeviceInput?
-
     override init() {
         super.init()
         session.sessionPreset = .photo
@@ -73,7 +71,6 @@ final class CameraController: NSObject, ObservableObject {
                         continuation.resume()
                         return
                     }
-
                     let input = try AVCaptureDeviceInput(device: device)
                     if session.canAddInput(input) {
                         session.addInput(input)
@@ -91,7 +88,6 @@ final class CameraController: NSObject, ObservableObject {
                     continuation.resume()
                     return
                 }
-
                 // Output
                 if session.canAddOutput(self.photoOutput) {
                     session.addOutput(self.photoOutput)
@@ -102,7 +98,6 @@ final class CameraController: NSObject, ObservableObject {
                     continuation.resume()
                     return
                 }
-
                 session.commitConfiguration()
                 continuation.resume()
             }
@@ -147,7 +142,6 @@ final class CameraController: NSObject, ObservableObject {
                     continuation.resume(throwing: error)
                 }
             }
-
             // Retain the delegate until capture completes.
             objc_setAssociatedObject(photoOutput, Unmanaged.passUnretained(delegate).toOpaque(), delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
             self.photoOutput.capturePhoto(with: settings, delegate: delegate)
