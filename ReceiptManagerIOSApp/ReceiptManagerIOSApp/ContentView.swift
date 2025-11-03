@@ -11,7 +11,11 @@ import FirebaseAuth
 struct ContentView: View {
     @State private var hasCompletedLanding = false
     @State private var session = SessionViewModel()
-
+    @State private var selectedTab: Tab = .scan
+    
+    enum Tab {
+        case scan, receipts, stats
+    }
     var body: some View {
         Group {
             switch session.state {
@@ -37,7 +41,7 @@ struct ContentView: View {
     }
 
     private var mainTabs: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             NavigationStack {
                 ScanView()
                     .toolbar {
@@ -53,13 +57,15 @@ struct ContentView: View {
             .tabItem {
                 Label("Scan", systemImage: "camera.viewfinder")
             }
+            .tag(Tab.scan)   // <-- important
 
             NavigationStack {
-                ReceiptsView()
+                ReceiptsView(selectedTab: $selectedTab)
             }
             .tabItem {
                 Label("Receipts", systemImage: "doc.text.magnifyingglass")
             }
+            .tag(Tab.receipts)  // <-- important
 
             NavigationStack {
                 StatisticsView()
@@ -67,6 +73,7 @@ struct ContentView: View {
             .tabItem {
                 Label("Stats", systemImage: "chart.bar")
             }
+            .tag(Tab.stats)   // <-- important
         }
     }
 }

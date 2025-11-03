@@ -1,0 +1,120 @@
+//
+//  FirestoreService.swift
+//  ReceiptManagerIOSApp
+//
+//  Created by Michael Tong on 11/3/25.
+//
+import Foundation
+import FirebaseFirestore
+import FirebaseAuth
+
+struct Receipt: Codable, Identifiable {
+    @DocumentID var id: String?
+    var category: String
+    var storeName: String
+    var date: Date
+    var extractedText: String
+    var tax: Double
+    var totalAmount: Double
+    var createdAt: Date
+    var folderId: String?
+}
+
+class FirestoreService {
+    private let db = Firestore.firestore()
+    
+    func addReceipt(
+        storeName: String,
+        totalAmount: Double,
+        date: Date,
+        receiptCategory: String,
+        tax: Double,
+        extractedText: String,
+        folderID: String? = nil
+    ) async throws {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(
+                domain: "FirestoreService",
+                code: 401,
+                userInfo: [NSLocalizedDescriptionKey: "User not logged in"]
+            )
+        }
+
+        var receiptData: [String: Any] = [
+            "category": receiptCategory,
+            "storeName": storeName,
+            "date": Timestamp(date: date),
+            "extractedText": extractedText,
+            "tax": tax,
+            "totalAmount": totalAmount,
+            "createdAt": Timestamp(date: Date())
+        ]
+
+        if let folderID = folderID {
+            receiptData["folderId"] = folderID
+        } else {
+            receiptData["folderId"] = NSNull()
+        }
+
+        try await db
+            .collection("users")
+            .document(userId)
+            .collection("receipts")
+            .addDocument(data: receiptData)
+    }
+    
+    func addFolder(name: String, description: String) async throws {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "FirestoreService", code: 401,
+                          userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
+        }
+
+        let folderData: [String: Any] = [
+            "name": name,
+            "description": description,
+            "createdAt": Timestamp(date: Date())
+        ]
+
+        try await db
+            .collection("users")
+            .document(userId)
+            .collection("folders")
+            .addDocument(data: folderData)
+    }
+    
+    struct FolderData {
+            let id: String
+            let name: String
+            let description: String
+        }
+
+    func fetchFolders() async throws -> [FolderData] {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "FirestoreService", code: 401,
+                          userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
+        }
+
+        let snapshot = try await db
+            .collection("users")
+            .document(userId)
+            .collection("folders")
+            .getDocuments()
+
+        return snapshot.documents.map { doc in
+            FolderData(
+                id: doc.documentID,
+                name: doc["name"] as? String ?? "Unnamed",
+                description: doc["description"] as? String ?? ""
+            )
+        }
+    }
+    
+    func deleteFolder(folderId: String) async throws {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "FirestoreService", code: 1, userInfo: [NSLocalizedDescriptionKey: "User not signed in"])
+        }
+        
+        let folderRef = db.collection("users").document(userId).collection("folders").document(folderId)
+        try await folderRef.delete()
+    }
+}
