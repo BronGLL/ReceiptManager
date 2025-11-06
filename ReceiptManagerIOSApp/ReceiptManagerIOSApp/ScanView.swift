@@ -7,11 +7,26 @@
 
 import SwiftUI
 import AVFoundation
+import UIKit
+
+private struct CapturedImageItem: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
 
 struct ScanView: View {
     @StateObject private var camera = CameraController()
     @State private var showCamera = false
-    @State private var capturedImage: UIImage?
+
+    // Capture and crop flow
+    @State private var capturedItem: CapturedImageItem?
+    @State private var croppedImage: UIImage?
+    @State private var didSkipCrop = false
+
+    // Confirmation
+    @State private var showConfirm = false
+    @State private var isUploading = false
+    @State private var uploadErrorMessage: String?
 
     var body: some View {
         ZStack {
@@ -33,7 +48,6 @@ struct ScanView: View {
                         .padding(.top, 12)
                     Spacer()
                 }
-                
 
                 // Bottom controls: Capture centered, Close in bottom-right
                 VStack {
@@ -44,11 +58,22 @@ struct ScanView: View {
                         Button {
                             Task {
                                 do {
+                                    // Capture photo
                                     let image = try await camera.capturePhoto()
-                                    capturedImage = image
+
+                                    // Update state and present cropper synchronously on main actor
+                                    await MainActor.run {
+                                        didSkipCrop = false
+                                        croppedImage = nil
+                                        capturedItem = CapturedImageItem(image: image)
+                                    }
+
+                                    // Stop session immediately after scheduling presentation
                                     camera.stopSession()
                                 } catch {
-                                    // Handle error if desired
+                                    await MainActor.run {
+                                        uploadErrorMessage = error.localizedDescription
+                                    }
                                 }
                             }
                         } label: {
@@ -62,6 +87,7 @@ struct ScanView: View {
                             }
                         }
                         .accessibilityLabel("Capture Photo")
+                        .disabled(!camera.isSessionRunning) // prevent early tap before session is ready
 
                         // Close button bottom-right
                         HStack {
@@ -78,23 +104,23 @@ struct ScanView: View {
                         }
                     }
                     .padding(.horizontal, 34)
-                    .padding(.bottom, 24) // lift above home indicator a bit
+                    .padding(.bottom, 24)
                 }
-                
-
                 .onAppear {
                     Task {
                         await camera.checkPermissions()
                         if camera.isAuthorized {
                             await camera.configureSession()
                             camera.startSession()
+
+                            // Optional: wait briefly for session to report running
+                            await waitUntilSessionRunning()
                         }
                     }
                 }
                 .onDisappear {
                     camera.stopSession()
                 }
-                // Fully hide bars while camera is visible
                 .navigationBarBackButtonHidden(true)
                 .toolbar(.hidden, for: .navigationBar)
                 .toolbar(.hidden, for: .tabBar)
@@ -124,8 +150,6 @@ struct ScanView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .padding(.horizontal)
-
-                    
                 }
                 .padding()
                 .navigationBarBackButtonHidden(false)
@@ -134,10 +158,111 @@ struct ScanView: View {
             }
         }
         .navigationTitle("Scan")
-        .alert("Camera Access Needed", isPresented: .constant(camera.lastError == .unauthorized)) {
+        .alert("Camera Access Needed", isPresented: Binding(
+            get: { camera.lastError == .unauthorized },
+            set: { _ in }
+        )) {
             Button("OK", role: .cancel) { }
         } message: {
             Text("Please enable camera access in Settings to scan receipts.")
+        }
+        .alert("Error", isPresented: Binding(
+            get: { uploadErrorMessage != nil },
+            set: { newValue in if !newValue { uploadErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { uploadErrorMessage = nil }
+        } message: {
+            Text(uploadErrorMessage ?? "Unknown error")
+        }
+        // Cropping UI using item-based presentation to ensure image is non-nil
+        .fullScreenCover(item: $capturedItem, onDismiss: {
+            // Only show confirmation if user explicitly cropped or explicitly skipped cropping.
+            if croppedImage != nil || didSkipCrop {
+                showConfirm = true
+            } else {
+                // User dismissed without action; resume camera if visible.
+                if showCamera {
+                    camera.startSession()
+                }
+            }
+        }, content: { item in
+            CropView(
+                image: item.image,
+                onCancel: {
+                    // Explicit cancel: clear and return to camera without confirmation
+                    didSkipCrop = false
+                    croppedImage = nil
+                    capturedItem = nil
+                    if showCamera {
+                        camera.startSession()
+                    }
+                },
+                onSkip: {
+                    // Explicit skip: use original and show confirmation
+                    didSkipCrop = true
+                    croppedImage = nil
+                    capturedItem = nil
+                },
+                onCropped: { result in
+                    // Explicit crop: use result and show confirmation
+                    didSkipCrop = false
+                    croppedImage = result
+                    capturedItem = nil
+                }
+            )
+            // Prevent accidental swipe-to-dismiss from bypassing explicit choice.
+            .interactiveDismissDisabled(true)
+        })
+        // Confirmation prompt
+        .confirmationDialog("Upload this receipt?", isPresented: $showConfirm, titleVisibility: .visible) {
+            Button(isUploading ? "Uploading..." : "Upload") {
+                Task { await uploadFinalImage() }
+            }.disabled(isUploading)
+
+            Button("Retake", role: .destructive) {
+                didSkipCrop = false
+                croppedImage = nil
+                capturedItem = nil
+                showConfirm = false
+                if showCamera {
+                    camera.startSession()
+                } else {
+                    withAnimation { showCamera = true }
+                }
+            }
+
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Make sure the receipt is clearly visible and readable.")
+        }
+    }
+
+    // Wait until the session is reported running (with a short timeout)
+    private func waitUntilSessionRunning(timeout: TimeInterval = 1.0) async {
+        let start = Date()
+        while !camera.isSessionRunning && Date().timeIntervalSince(start) < timeout {
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        }
+    }
+
+    // MARK: - Upload Integration
+
+    private func uploadFinalImage() async {
+        guard !isUploading else { return }
+        guard let imageToUpload = croppedImage ?? capturedItem?.image else { return }
+        isUploading = true
+        defer { isUploading = false }
+
+        do {
+            // TODO: Replace this stub with your Firebase Storage uploader.
+            try await Task.sleep(nanoseconds: 300_000_000)
+            didSkipCrop = false
+            croppedImage = nil
+            capturedItem = nil
+            showConfirm = false
+            withAnimation { showCamera = false }
+        } catch {
+            uploadErrorMessage = error.localizedDescription
         }
     }
 }
