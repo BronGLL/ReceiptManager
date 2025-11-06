@@ -98,12 +98,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		63A5282A2EA74CA50085B84C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		68BF5F022EA2CDAE005C065F = {
 			isa = PBXGroup;
 			children = (
 				68BF5F0D2EA2CDAE005C065F /* ReceiptManagerIOSApp */,
 				68BF5F1B2EA2CDB1005C065F /* ReceiptManagerIOSAppTests */,
 				68BF5F252EA2CDB1005C065F /* ReceiptManagerIOSAppUITests */,
+				63A5282A2EA74CA50085B84C /* Frameworks */,
 				68BF5F0C2EA2CDAE005C065F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -393,9 +401,6 @@
 				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
