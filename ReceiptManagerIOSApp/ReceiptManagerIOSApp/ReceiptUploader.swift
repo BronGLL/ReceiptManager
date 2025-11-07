@@ -40,8 +40,7 @@ final class ReceiptUploader {
         return downloadURL
     }
 
-    /// Create a new Firestore receipt document (if not yet existing)
-    /// before uploading the image. Returns the receipt document ID.
+
     func createReceiptDocument(forUser userId: String,
                                storeName: String,
                                category: String = "Uncategorized",
