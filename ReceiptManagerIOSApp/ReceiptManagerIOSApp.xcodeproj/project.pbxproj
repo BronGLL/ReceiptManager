@@ -12,6 +12,7 @@
 		0E33CE422EA982880001384E /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 0E33CE412EA982880001384E /* FirebaseFirestore */; };
 		0E33CE452EA982F70001384E /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 0E33CE442EA982F70001384E /* GoogleSignIn */; };
 		0E33CE472EA982F70001384E /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 0E33CE462EA982F70001384E /* GoogleSignInSwift */; };
+		637D97502EBD66EE00D049A4 /* CropViewController in Frameworks */ = {isa = PBXBuildFile; productRef = 637D974F2EBD66EE00D049A4 /* CropViewController */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -78,6 +79,7 @@
 				0E33CE452EA982F70001384E /* GoogleSignIn in Frameworks */,
 				0E33CE3E2EA982880001384E /* FirebaseAuth in Frameworks */,
 				0E33CE422EA982880001384E /* FirebaseFirestore in Frameworks */,
+				637D97502EBD66EE00D049A4 /* CropViewController in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -151,6 +153,7 @@
 				0E33CE412EA982880001384E /* FirebaseFirestore */,
 				0E33CE442EA982F70001384E /* GoogleSignIn */,
 				0E33CE462EA982F70001384E /* GoogleSignInSwift */,
+				637D974F2EBD66EE00D049A4 /* CropViewController */,
 			);
 			productName = ReceiptManagerIOSApp;
 			productReference = 68BF5F0B2EA2CDAE005C065F /* ReceiptManagerIOSApp.app */;
@@ -237,6 +240,7 @@
 			packageReferences = (
 				0E33CE3C2EA982880001384E /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				0E33CE432EA982F70001384E /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				637D974E2EBD66EE00D049A4 /* XCRemoteSwiftPackageReference "TOCropViewController" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 68BF5F0C2EA2CDAE005C065F /* Products */;
@@ -632,6 +636,14 @@
 				minimumVersion = 9.0.0;
 			};
 		};
+		637D974E2EBD66EE00D049A4 /* XCRemoteSwiftPackageReference "TOCropViewController" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/TimOliver/TOCropViewController";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.1.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -659,6 +671,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0E33CE432EA982F70001384E /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignInSwift;
+		};
+		637D974F2EBD66EE00D049A4 /* CropViewController */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 637D974E2EBD66EE00D049A4 /* XCRemoteSwiftPackageReference "TOCropViewController" */;
+			productName = CropViewController;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
