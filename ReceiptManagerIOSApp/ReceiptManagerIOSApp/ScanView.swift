@@ -8,6 +8,9 @@
 import SwiftUI
 import AVFoundation
 import UIKit
+import FirebaseAuth
+import FirebaseStorage
+import FirebaseFirestore
 
 private struct CapturedImageItem: Identifiable {
     let id = UUID()
@@ -254,7 +257,25 @@ struct ScanView: View {
         defer { isUploading = false }
 
         do {
-            // TODO: Replace this stub with your Firebase Storage uploader.
+            guard let uid = Auth.auth().currentUser?.uid else {
+                uploadErrorMessage = "Not signed in."
+                return
+            }
+            
+            let uploader = ReceiptUploader()
+            
+            let receiptId = try await uploader.createReceiptDocument(
+                forUser: uid,
+                storeName: "Scanned Receipt"
+            )
+            
+            let url = try await uploader.uploadReceiptImage(
+                imageToUpload,
+                forUser: uid,
+                receiptId: receiptId
+            )
+
+            
             try await Task.sleep(nanoseconds: 300_000_000)
             didSkipCrop = false
             croppedImage = nil
