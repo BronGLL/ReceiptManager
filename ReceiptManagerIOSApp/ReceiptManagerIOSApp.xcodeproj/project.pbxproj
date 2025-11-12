@@ -12,7 +12,8 @@
 		0E33CE422EA982880001384E /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 0E33CE412EA982880001384E /* FirebaseFirestore */; };
 		0E33CE452EA982F70001384E /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 0E33CE442EA982F70001384E /* GoogleSignIn */; };
 		0E33CE472EA982F70001384E /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 0E33CE462EA982F70001384E /* GoogleSignInSwift */; };
-		637D97502EBD66EE00D049A4 /* CropViewController in Frameworks */ = {isa = PBXBuildFile; productRef = 637D974F2EBD66EE00D049A4 /* CropViewController */; };
+		684479392EBC51B0001C3723 /* CropViewController in Frameworks */ = {isa = PBXBuildFile; productRef = 684479382EBC51B0001C3723 /* CropViewController */; };
+		6844793B2EBC6149001C3723 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 6844793A2EBC6149001C3723 /* FirebaseStorage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -78,8 +79,9 @@
 				0E33CE402EA982880001384E /* FirebaseCore in Frameworks */,
 				0E33CE452EA982F70001384E /* GoogleSignIn in Frameworks */,
 				0E33CE3E2EA982880001384E /* FirebaseAuth in Frameworks */,
+				6844793B2EBC6149001C3723 /* FirebaseStorage in Frameworks */,
 				0E33CE422EA982880001384E /* FirebaseFirestore in Frameworks */,
-				637D97502EBD66EE00D049A4 /* CropViewController in Frameworks */,
+				684479392EBC51B0001C3723 /* CropViewController in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -153,7 +155,8 @@
 				0E33CE412EA982880001384E /* FirebaseFirestore */,
 				0E33CE442EA982F70001384E /* GoogleSignIn */,
 				0E33CE462EA982F70001384E /* GoogleSignInSwift */,
-				637D974F2EBD66EE00D049A4 /* CropViewController */,
+				684479382EBC51B0001C3723 /* CropViewController */,
+				6844793A2EBC6149001C3723 /* FirebaseStorage */,
 			);
 			productName = ReceiptManagerIOSApp;
 			productReference = 68BF5F0B2EA2CDAE005C065F /* ReceiptManagerIOSApp.app */;
@@ -240,7 +243,7 @@
 			packageReferences = (
 				0E33CE3C2EA982880001384E /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				0E33CE432EA982F70001384E /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
-				637D974E2EBD66EE00D049A4 /* XCRemoteSwiftPackageReference "TOCropViewController" */,
+				684479372EBC51B0001C3723 /* XCRemoteSwiftPackageReference "TOCropViewController" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 68BF5F0C2EA2CDAE005C065F /* Products */;
@@ -439,6 +442,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ReceiptManagerIOSApp/Info.plist;
@@ -472,6 +476,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ReceiptManagerIOSApp/Info.plist;
@@ -636,7 +641,7 @@
 				minimumVersion = 9.0.0;
 			};
 		};
-		637D974E2EBD66EE00D049A4 /* XCRemoteSwiftPackageReference "TOCropViewController" */ = {
+		684479372EBC51B0001C3723 /* XCRemoteSwiftPackageReference "TOCropViewController" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/TimOliver/TOCropViewController";
 			requirement = {
@@ -672,10 +677,15 @@
 			package = 0E33CE432EA982F70001384E /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignInSwift;
 		};
-		637D974F2EBD66EE00D049A4 /* CropViewController */ = {
+		684479382EBC51B0001C3723 /* CropViewController */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 637D974E2EBD66EE00D049A4 /* XCRemoteSwiftPackageReference "TOCropViewController" */;
+			package = 684479372EBC51B0001C3723 /* XCRemoteSwiftPackageReference "TOCropViewController" */;
 			productName = CropViewController;
+		};
+		6844793A2EBC6149001C3723 /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0E33CE3C2EA982880001384E /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
