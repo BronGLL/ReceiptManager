@@ -117,4 +117,60 @@ class FirestoreService {
         let folderRef = db.collection("users").document(userId).collection("folders").document(folderId)
         try await folderRef.delete()
     }
+    // Fetch all receipts
+    func fetchReceipts() async throws -> [Receipt] {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "FirestoreService", code: 401,
+                          userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
+        }
+
+        let snapshot = try await db
+            .collection("users")
+            .document(userId)
+            .collection("receipts")
+            .order(by: "createdAt", descending: true)
+            .getDocuments()
+
+        return snapshot.documents.compactMap { doc in
+            try? doc.data(as: Receipt.self)
+        }
+    }
+    
+    func fetchReceipts(inFolder folderId: String) async throws -> [Receipt] {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "FirestoreService", code: 401,
+                          userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
+        }
+
+        let snapshot = try await db
+            .collection("users")
+            .document(userId)
+            .collection("receipts")
+            .whereField("folderId", isEqualTo: folderId)
+            .order(by: "createdAt", descending: true)
+            .getDocuments()
+
+        return snapshot.documents.compactMap { doc in
+            try? doc.data(as: Receipt.self)
+        }
+    }
+
+    // Move receipt to a folder
+    func moveReceipt(_ receiptId: String, toFolder folderId: String?) async throws {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "FirestoreService", code: 401,
+                          userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
+        }
+
+        let ref = db
+            .collection("users")
+            .document(userId)
+            .collection("receipts")
+            .document(receiptId)
+
+        try await ref.updateData([
+            "folderId": folderId ?? NSNull()
+        ])
+    }
 }
+
