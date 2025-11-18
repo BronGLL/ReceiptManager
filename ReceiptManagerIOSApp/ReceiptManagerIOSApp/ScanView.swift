@@ -26,6 +26,10 @@ struct ScanView: View {
     @State private var croppedImage: UIImage?
     @State private var didSkipCrop = false
 
+    // OCR
+    @State private var ocrDocument: ReceiptDocument?
+    private let ocrService = OCRService()
+
     // Confirmation
     @State private var showConfirm = false
     @State private var isUploading = false
@@ -205,17 +209,23 @@ struct ScanView: View {
                     didSkipCrop = true
                     croppedImage = nil
                     capturedItem = nil
+                    Task { await runOCR(on: item.image) }
                 },
                 onCropped: { result in
                     // Explicit crop: use result and show confirmation
                     didSkipCrop = false
                     croppedImage = result
                     capturedItem = nil
+                    Task { await runOCR(on: result) }
                 }
             )
-            // Prevent accidental swipe-to-dismiss from bypassing explicit choice.
+            // Prevent accidental swipe to dismiss
             .interactiveDismissDisabled(true)
         })
+        // OCR Debug sheet
+        .sheet(item: $ocrDocument) { doc in
+            OCRDebugView(document: doc)
+        }
         // Confirmation prompt
         .confirmationDialog("Upload this receipt?", isPresented: $showConfirm, titleVisibility: .visible) {
             Button(isUploading ? "Uploading..." : "Upload") {
@@ -248,11 +258,23 @@ struct ScanView: View {
         }
     }
 
+    // MARK: - OCR Integration
+
+    private func runOCR(on image: UIImage) async {
+        do {
+            let doc = try await ocrService.process(image: image)
+            ocrDocument = doc // triggers the debug sheet
+        } catch {
+            uploadErrorMessage = "OCR failed: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: - Upload Integration
 
     private func uploadFinalImage() async {
         guard !isUploading else { return }
         guard let imageToUpload = croppedImage ?? capturedItem?.image else { return }
+        _ = imageToUpload // Replace with your uploader when ready
         isUploading = true
         defer { isUploading = false }
 
