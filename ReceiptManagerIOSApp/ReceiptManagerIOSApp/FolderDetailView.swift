@@ -24,19 +24,21 @@ struct FolderDetailView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(receipts) { receipt in
-                    HStack {
-                        Image(systemName: "doc.text")
-                            .foregroundStyle(.tint)
-                        VStack(alignment: .leading) {
-                            Text(receipt.storeName)
+                    NavigationLink(destination: ReceiptDetailView(receipt: receipt)) {
+                        HStack {
+                            Image(systemName: "doc.text.image")
+                                .foregroundStyle(.tint)
+                            VStack(alignment: .leading) {
+                                Text(receipt.storeName)
+                                    .font(.headline)
+                                Text(receipt.date, style: .date)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text("$\(receipt.totalAmount, specifier: "%.2f")")
                                 .font(.headline)
-                            Text(receipt.date, style: .date)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        Text("$\(receipt.totalAmount, specifier: "%.2f")")
-                            .font(.headline)
                     }
                 }
             }

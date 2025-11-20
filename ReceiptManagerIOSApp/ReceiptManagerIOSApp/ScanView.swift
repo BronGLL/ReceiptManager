@@ -34,6 +34,12 @@ struct ScanView: View {
     @State private var showConfirm = false
     @State private var isUploading = false
     @State private var uploadErrorMessage: String?
+    
+    @State private var folders: [FirestoreService.FolderData] = []
+    @State private var selectedFolderId: String? = nil
+    private let firestore = FirestoreService()
+    private let uploader = ReceiptUploader()
+    @State private var showFolderPicker = false
 
     var body: some View {
         ZStack {
@@ -231,10 +237,21 @@ struct ScanView: View {
          */
         
         // Confirmation prompt
-        .confirmationDialog("Upload this receipt?", isPresented: $showConfirm, titleVisibility: .visible) {
+        .confirmationDialog(
+            selectedFolderId == nil
+                ? "Upload this receipt?"
+                : "Upload to folder: \(folders.first(where: { $0.id == selectedFolderId })?.name ?? "Folder")",
+            isPresented: $showConfirm,
+            titleVisibility: .visible
+            ) {
+            Button("Choose Folder") {
+                Task { await loadFolders() }
+                showFolderPicker = true
+            }
             Button(isUploading ? "Uploading..." : "Upload") {
                 Task { await uploadFinalImage() }
-            }.disabled(isUploading)
+            }
+            .disabled(isUploading)
 
             Button("Retake", role: .destructive) {
                 didSkipCrop = false
@@ -251,6 +268,30 @@ struct ScanView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Make sure the receipt is clearly visible and readable.")
+        }
+
+        // FOLDER PICKER SHEET
+        .sheet(isPresented: $showFolderPicker) {
+            NavigationStack {
+                List {
+                    Section("Choose a folder") {
+                        Button("None") {
+                            selectedFolderId = nil
+                            showFolderPicker = false
+                            showConfirm = true
+                        }
+
+                        ForEach(folders, id: \.id) { folder in
+                            Button(folder.name) {
+                                selectedFolderId = folder.id
+                                showFolderPicker = false
+                                showConfirm = true  
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("Select Folder")
+            }
         }
     }
 
@@ -273,12 +314,14 @@ struct ScanView: View {
         }
     }
 
-    // MARK: - Upload Integration
-
     private func uploadFinalImage() async {
-        guard !isUploading else { return }
         guard let imageToUpload = croppedImage ?? capturedItem?.image else { return }
-        _ = imageToUpload // Replace with your uploader when ready
+        guard let document = ocrDocument else {
+            uploadErrorMessage = "OCR is missing."
+            return
+        }
+
+        guard !isUploading else { return }
         isUploading = true
         defer { isUploading = false }
 
@@ -287,33 +330,56 @@ struct ScanView: View {
                 uploadErrorMessage = "Not signed in."
                 return
             }
-            
-            let uploader = ReceiptUploader()
-            
-            guard let receiptDoc = ocrDocument else {
-                uploadErrorMessage = "OCR not finished."
+
+            guard let payload = document.makeFirestorePayload(folderID: selectedFolderId) else {
+                uploadErrorMessage = "Missing OCR fields."
                 return
             }
 
-            // Upload full OCR results + image
-            _ = try await uploader.upload(
-                receipt: receiptDoc,
-                image: imageToUpload,
+            // Upload image to Fire Storage
+            let tempId = UUID().uuidString
+            let imageURL = try await uploader.uploadReceiptImage(
+                imageToUpload,
                 forUser: uid,
-                folderID: nil   // Placeholder
+                receiptId: tempId
             )
 
-            
-            try await Task.sleep(nanoseconds: 300_000_000)
-            didSkipCrop = false
-            croppedImage = nil
-            ocrDocument = nil
-            capturedItem = nil
-            showConfirm = false
-            withAnimation { showCamera = false }
+            // Write Firestore record
+            _ = try await firestore.createReceiptFromOCR(
+                ocr: document,
+                payload: payload,
+                imageURL: imageURL,
+                folderId: selectedFolderId
+            )
+
+            resetAfterUpload()
+
         } catch {
             uploadErrorMessage = error.localizedDescription
         }
+    }
+
+    private func loadFolders() async {
+        do { folders = try await firestore.fetchFolders() }
+        catch { uploadErrorMessage = error.localizedDescription }
+    }
+
+    private func resetForRetake() {
+        croppedImage = nil
+        capturedItem = nil
+        ocrDocument = nil
+        selectedFolderId = nil
+        showConfirm = false
+        if showCamera { camera.startSession() }
+    }
+
+    private func resetAfterUpload() {
+        croppedImage = nil
+        capturedItem = nil
+        ocrDocument = nil
+        selectedFolderId = nil
+        showConfirm = false
+        showCamera = false
     }
 }
 
