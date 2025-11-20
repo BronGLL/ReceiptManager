@@ -30,7 +30,10 @@ struct ScanView: View {
     @State private var ocrDocument: ReceiptDocument?
     private let ocrService = OCRService()
 
-    // Confirmation
+    // Edit screen navigation
+    @State private var navigateToEdit = false
+
+    // Confirmation (kept for folder selection after edit)
     @State private var showConfirm = false
     @State private var isUploading = false
     @State private var uploadErrorMessage: String?
@@ -42,257 +45,191 @@ struct ScanView: View {
     @State private var showFolderPicker = false
 
     var body: some View {
-        ZStack {
-            if showCamera {
-                // Full-screen camera preview
-                CameraPreviewView(session: camera.session)
-                    .ignoresSafeArea(.all)
-
-                // Center reticle
-                CenterReticle()
-
-                // Tip at the top, within safe area
-                VStack {
-                    Text("Tip: Place receipt on a dark background for best results.")
-                        .font(.subheadline)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .padding(.top, 12)
-                    Spacer()
-                }
-
-                // Bottom controls: Capture centered, Close in bottom-right
-                VStack {
-                    Spacer()
-
-                    ZStack {
-                        // Capture button centered
-                        Button {
-                            Task {
-                                do {
-                                    // Capture photo
-                                    let image = try await camera.capturePhoto()
-
-                                    // Update state and present cropper synchronously on main actor
-                                    await MainActor.run {
-                                        didSkipCrop = false
-                                        croppedImage = nil
-                                        capturedItem = CapturedImageItem(image: image)
-                                    }
-
-                                    // Stop session immediately after scheduling presentation
-                                    camera.stopSession()
-                                } catch {
-                                    await MainActor.run {
-                                        uploadErrorMessage = error.localizedDescription
-                                    }
-                                }
-                            }
-                        } label: {
-                            ZStack {
-                                Circle()
-                                    .fill(.white)
-                                    .frame(width: 66, height: 66)
-                                Circle()
-                                    .stroke(.white.opacity(0.8), lineWidth: 2)
-                                    .frame(width: 74, height: 74)
-                            }
-                        }
-                        .accessibilityLabel("Capture Photo")
-                        .disabled(!camera.isSessionRunning) // prevent early tap before session is ready
-
-                        // Close button bottom-right
-                        HStack {
-                            Spacer()
-                            Button {
-                                withAnimation { showCamera = false }
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 28, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .shadow(radius: 2)
-                            }
-                            .accessibilityLabel("Close")
-                        }
-                    }
-                    .padding(.horizontal, 34)
-                    .padding(.bottom, 24)
-                }
-                .onAppear {
-                    Task {
-                        await camera.checkPermissions()
-                        if camera.isAuthorized {
-                            await camera.configureSession()
-                            camera.startSession()
-
-                            // Optional: wait briefly for session to report running
-                            await waitUntilSessionRunning()
-                        }
-                    }
-                }
-                .onDisappear {
-                    camera.stopSession()
-                }
-                .navigationBarBackButtonHidden(true)
-                .toolbar(.hidden, for: .navigationBar)
-                .toolbar(.hidden, for: .tabBar)
-            } else {
-                // Landing content when camera is not shown
-                VStack(spacing: 16) {
-                    Image(systemName: "camera.viewfinder")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 120)
-                        .foregroundStyle(.tint)
-
-                    Text("Scan Receipts")
-                        .font(.title)
-                        .fontWeight(.semibold)
-
-                    Text("Use your iPhone camera to capture receipt images. Place receipts on a dark background for better contrast.")
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal)
-
-                    Button {
-                        withAnimation { showCamera = true }
-                    } label: {
-                        Label("Open Camera", systemImage: "camera")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .padding(.horizontal)
-                }
-                .padding()
-                .navigationBarBackButtonHidden(false)
-                .toolbar(.automatic, for: .navigationBar)
-                .toolbar(.automatic, for: .tabBar)
-            }
-        }
-        .navigationTitle("Scan")
-        .alert("Camera Access Needed", isPresented: Binding(
-            get: { camera.lastError == .unauthorized },
-            set: { _ in }
-        )) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Please enable camera access in Settings to scan receipts.")
-        }
-        .alert("Error", isPresented: Binding(
-            get: { uploadErrorMessage != nil },
-            set: { newValue in if !newValue { uploadErrorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { uploadErrorMessage = nil }
-        } message: {
-            Text(uploadErrorMessage ?? "Unknown error")
-        }
-        // Cropping UI using item-based presentation to ensure image is non-nil
-        .fullScreenCover(item: $capturedItem, onDismiss: {
-            // Only show confirmation if user explicitly cropped or explicitly skipped cropping.
-            if croppedImage != nil || didSkipCrop {
-                showConfirm = true
-            } else {
-                // User dismissed without action; resume camera if visible.
-                if showCamera {
-                    camera.startSession()
-                }
-            }
-        }, content: { item in
-            CropView(
-                image: item.image,
-                onCancel: {
-                    // Explicit cancel: clear and return to camera without confirmation
-                    didSkipCrop = false
-                    croppedImage = nil
-                    capturedItem = nil
-                    if showCamera {
-                        camera.startSession()
-                    }
-                },
-                onSkip: {
-                    // Explicit skip: use original and show confirmation
-                    didSkipCrop = true
-                    croppedImage = nil
-                    capturedItem = nil
-                    Task { await runOCR(on: item.image) }
-                },
-                onCropped: { result in
-                    // Explicit crop: use result and show confirmation
-                    didSkipCrop = false
-                    croppedImage = result
-                    capturedItem = nil
-                    Task { await runOCR(on: result) }
+        contentView
+            .navigationTitle("Scan")
+            .cameraAccessAlert(camera: camera)
+            .genericErrorAlert(message: $uploadErrorMessage)
+            .cropperCover(
+                capturedItem: $capturedItem,
+                showCamera: $showCamera,
+                didSkipCrop: $didSkipCrop,
+                croppedImage: $croppedImage,
+                camera: camera,
+                runOCR: runOCR
+            )
+            .editNavigationLink(
+                ocrDocument: ocrDocument,
+                isActive: $navigateToEdit,
+                onCancel: { resetForRetake() },
+                onSaveAndUpload: { edited in
+                    // 1) Dismiss Edit screen
+                    navigateToEdit = false
+                    // 2) Keep the edited document
+                    ocrDocument = edited
+                    showConfirm = true
                 }
             )
-            // Prevent accidental swipe to dismiss
-            .interactiveDismissDisabled(true)
-        })
-        
-        // OCR Debug sheet
-        /* USE FOR TESTING PURPOSES
-        .sheet(item: $ocrDocument) { doc in
-            OCRDebugView(document: doc)
-        }
-         */
-        
-        // Confirmation prompt
-        .confirmationDialog(
-            selectedFolderId == nil
-                ? "Upload this receipt?"
-                : "Upload to folder: \(folders.first(where: { $0.id == selectedFolderId })?.name ?? "Folder")",
-            isPresented: $showConfirm,
-            titleVisibility: .visible
-            ) {
-            Button("Choose Folder") {
-                Task { await loadFolders() }
-                showFolderPicker = true
-            }
-            Button(isUploading ? "Uploading..." : "Upload") {
-                Task { await uploadFinalImage() }
-            }
-            .disabled(isUploading)
-
-            Button("Retake", role: .destructive) {
-                didSkipCrop = false
-                croppedImage = nil
-                capturedItem = nil
-                showConfirm = false
-                if showCamera {
-                    camera.startSession()
-                } else {
-                    withAnimation { showCamera = true }
+            .folderPickerSheet(
+                isPresented: $showFolderPicker,
+                folders: folders,
+                onSelect: { id in
+                    selectedFolderId = id
+                    showFolderPicker = false
+                    showConfirm = true
+                },
+                onNone: {
+                    selectedFolderId = nil
+                    showFolderPicker = false
+                    showConfirm = true
                 }
-            }
-
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Make sure the receipt is clearly visible and readable.")
-        }
-
-        // FOLDER PICKER SHEET
-        .sheet(isPresented: $showFolderPicker) {
-            NavigationStack {
-                List {
-                    Section("Choose a folder") {
-                        Button("None") {
-                            selectedFolderId = nil
-                            showFolderPicker = false
-                            showConfirm = true
-                        }
-
-                        ForEach(folders, id: \.id) { folder in
-                            Button(folder.name) {
-                                selectedFolderId = folder.id
-                                showFolderPicker = false
-                                showConfirm = true  
-                            }
+            )
+            .finalUploadConfirmation(
+                isPresented: $showConfirm,
+                isUploading: isUploading,
+                selectedFolderId: selectedFolderId,
+                folders: folders,
+                chooseFolder: {
+                    Task { await loadFolders() }
+                    showFolderPicker = true
+                },
+                uploadAction: {
+                    Task {
+                        if let doc = ocrDocument {
+                            await uploadFinalImage(with: doc)
                         }
                     }
                 }
-                .navigationTitle("Select Folder")
+            )
+    }
+
+    // MARK: - Split main branches
+
+    @ViewBuilder
+    private var contentView: some View {
+        ZStack {
+            if showCamera {
+                cameraContent
+            } else {
+                landingContent
             }
         }
+        .navigationBarBackButtonHidden(showCamera)
+        .toolbar(showCamera ? .hidden : .automatic, for: .navigationBar)
+        .toolbar(showCamera ? .hidden : .automatic, for: .tabBar)
+    }
+
+    private var cameraContent: some View {
+        ZStack {
+            CameraPreviewView(session: camera.session)
+                .ignoresSafeArea(.all)
+
+            CenterReticle()
+
+            VStack {
+                Text("Tip: Place receipt on a dark background for best results.")
+                    .font(.subheadline)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 12)
+                Spacer()
+            }
+
+            VStack {
+                Spacer()
+                captureControls
+                    .padding(.horizontal, 34)
+                    .padding(.bottom, 24)
+            }
+        }
+        .onAppear {
+            Task {
+                await camera.checkPermissions()
+                if camera.isAuthorized {
+                    await camera.configureSession()
+                    camera.startSession()
+                    await waitUntilSessionRunning()
+                }
+            }
+        }
+        .onDisappear {
+            camera.stopSession()
+        }
+    }
+
+    private var captureControls: some View {
+        ZStack {
+            Button {
+                Task {
+                    do {
+                        let image = try await camera.capturePhoto()
+                        await MainActor.run {
+                            didSkipCrop = false
+                            croppedImage = nil
+                            capturedItem = CapturedImageItem(image: image)
+                        }
+                        camera.stopSession()
+                    } catch {
+                        await MainActor.run {
+                            uploadErrorMessage = error.localizedDescription
+                        }
+                    }
+                }
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 66, height: 66)
+                    Circle()
+                        .stroke(.white.opacity(0.8), lineWidth: 2)
+                        .frame(width: 74, height: 74)
+                }
+            }
+            .accessibilityLabel("Capture Photo")
+            .disabled(!camera.isSessionRunning)
+
+            HStack {
+                Spacer()
+                Button {
+                    withAnimation { showCamera = false }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .shadow(radius: 2)
+                }
+                .accessibilityLabel("Close")
+            }
+        }
+    }
+
+    private var landingContent: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "camera.viewfinder")
+                .resizable()
+                .scaledToFit()
+                .frame(height: 120)
+                .foregroundStyle(.tint)
+
+            Text("Scan Receipts")
+                .font(.title)
+                .fontWeight(.semibold)
+
+            Text("Use your iPhone camera to capture receipt images. Place receipts on a dark background for better contrast.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+
+            Button {
+                withAnimation { showCamera = true }
+            } label: {
+                Label("Open Camera", systemImage: "camera")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal)
+        }
+        .padding()
     }
 
     // Wait until the session is reported running (with a short timeout)
@@ -308,18 +245,18 @@ struct ScanView: View {
     private func runOCR(on image: UIImage) async {
         do {
             let doc = try await ocrService.process(image: image)
-            ocrDocument = doc // triggers the debug sheet
+            await MainActor.run {
+                ocrDocument = doc
+                navigateToEdit = true
+            }
         } catch {
             uploadErrorMessage = "OCR failed: \(error.localizedDescription)"
         }
     }
 
-    private func uploadFinalImage() async {
+    // MARK: - Upload Integration (now accepts edited doc)
+    private func uploadFinalImage(with document: ReceiptDocument) async {
         guard let imageToUpload = croppedImage ?? capturedItem?.image else { return }
-        guard let document = ocrDocument else {
-            uploadErrorMessage = "OCR is missing."
-            return
-        }
 
         guard !isUploading else { return }
         isUploading = true
@@ -332,7 +269,7 @@ struct ScanView: View {
             }
 
             guard let payload = document.makeFirestorePayload(folderID: selectedFolderId) else {
-                uploadErrorMessage = "Missing OCR fields."
+                uploadErrorMessage = "Missing required fields (Store, Total, Date)."
                 return
             }
 
@@ -370,6 +307,7 @@ struct ScanView: View {
         ocrDocument = nil
         selectedFolderId = nil
         showConfirm = false
+        navigateToEdit = false
         if showCamera { camera.startSession() }
     }
 
@@ -379,6 +317,7 @@ struct ScanView: View {
         ocrDocument = nil
         selectedFolderId = nil
         showConfirm = false
+        navigateToEdit = false
         showCamera = false
     }
 }
@@ -410,3 +349,147 @@ private struct CenterReticle: View {
 #Preview {
     NavigationStack { ScanView() }
 }
+
+// MARK: - View Modifiers / Helpers to reduce type-checking load
+
+private extension View {
+    func cameraAccessAlert(camera: CameraController) -> some View {
+        alert("Camera Access Needed", isPresented: Binding(
+            get: { camera.lastError == .unauthorized },
+            set: { _ in }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Please enable camera access in Settings to scan receipts.")
+        }
+    }
+
+    func genericErrorAlert(message: Binding<String?>) -> some View {
+        alert("Error", isPresented: Binding(
+            get: { message.wrappedValue != nil },
+            set: { newValue in if !newValue { message.wrappedValue = nil } }
+        )) {
+            Button("OK", role: .cancel) { message.wrappedValue = nil }
+        } message: {
+            Text(message.wrappedValue ?? "Unknown error")
+        }
+    }
+
+    func cropperCover(
+        capturedItem: Binding<CapturedImageItem?>,
+        showCamera: Binding<Bool>,
+        didSkipCrop: Binding<Bool>,
+        croppedImage: Binding<UIImage?>,
+        camera: CameraController,
+        runOCR: @escaping (UIImage) async -> Void
+    ) -> some View {
+        fullScreenCover(item: capturedItem, onDismiss: {
+            // After crop/skip, navigation to edit happens when OCR completes
+        }, content: { item in
+            CropView(
+                image: item.image,
+                onCancel: {
+                    didSkipCrop.wrappedValue = false
+                    croppedImage.wrappedValue = nil
+                    capturedItem.wrappedValue = nil
+                    if showCamera.wrappedValue {
+                        camera.startSession()
+                    }
+                },
+                onSkip: {
+                    didSkipCrop.wrappedValue = true
+                    croppedImage.wrappedValue = nil
+                    capturedItem.wrappedValue = nil
+                    Task { await runOCR(item.image) }
+                },
+                onCropped: { result in
+                    didSkipCrop.wrappedValue = false
+                    croppedImage.wrappedValue = result
+                    capturedItem.wrappedValue = nil
+                    Task { await runOCR(result) }
+                }
+            )
+            .interactiveDismissDisabled(true)
+        })
+    }
+
+    func editNavigationLink(
+        ocrDocument: ReceiptDocument?,
+        isActive: Binding<Bool>,
+        onCancel: @escaping () -> Void,
+        onSaveAndUpload: @escaping (ReceiptDocument) -> Void
+    ) -> some View {
+        background {
+            NavigationLink(
+                isActive: isActive,
+                destination: {
+                    if let doc = ocrDocument {
+                        EditReceiptView(
+                            original: doc,
+                            onCancel: onCancel,
+                            onSaveAndUpload: onSaveAndUpload
+                        )
+                    } else {
+                        EmptyView()
+                    }
+                },
+                label: {
+                    EmptyView()
+                }
+            )
+            .hidden()
+        }
+    }
+
+    func folderPickerSheet(
+        isPresented: Binding<Bool>,
+        folders: [FirestoreService.FolderData],
+        onSelect: @escaping (String?) -> Void,
+        onNone: @escaping () -> Void
+    ) -> some View {
+        sheet(isPresented: isPresented) {
+            NavigationStack {
+                List {
+                    Section("Choose a folder") {
+                        Button("None") {
+                            onNone()
+                        }
+                        ForEach(folders, id: \.id) { folder in
+                            Button(folder.name) {
+                                onSelect(folder.id)
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("Select Folder")
+            }
+        }
+    }
+
+    func finalUploadConfirmation(
+        isPresented: Binding<Bool>,
+        isUploading: Bool,
+        selectedFolderId: String?,
+        folders: [FirestoreService.FolderData],
+        chooseFolder: @escaping () -> Void,
+        uploadAction: @escaping () -> Void
+    ) -> some View {
+        confirmationDialog(
+            selectedFolderId == nil
+                ? "Upload this receipt?"
+                : "Upload to folder: \(folders.first(where: { $0.id == selectedFolderId })?.name ?? "Folder")",
+            isPresented: isPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Choose Folder") { chooseFolder() }
+            Button(isUploading ? "Uploading..." : "Upload") {
+                uploadAction()
+            }
+            .disabled(isUploading)
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Review your edits, then upload.")
+        }
+    }
+}
+
