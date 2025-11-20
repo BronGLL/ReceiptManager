@@ -17,6 +17,7 @@ struct Receipt: Codable, Identifiable {
     var tax: Double
     var totalAmount: Double
     var createdAt: Date
+    var updatedAt: Date
     var folderId: String?
     var imageUrl: String?
     var ocrDocument: String?
@@ -243,5 +244,43 @@ class FirestoreService {
         return receipt
     }
 
+    // NEW: Update existing receipt with edited fields
+    func updateReceipt(
+        id: String,
+        with payload: ReceiptDocument.FirestorePayload,
+        imageURL: URL? = nil
+    ) async throws {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "FirestoreService", code: 401,
+                          userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
+        }
+
+        var data: [String: Any] = [
+            "storeName": payload.storeName,
+            "category": payload.receiptCategory,
+            "totalAmount": payload.totalAmount,
+            "tax": payload.tax,
+            "date": Timestamp(date: payload.date),
+            "extractedText": payload.extractedText,
+            "updatedAt": Timestamp(date: Date())
+        ]
+
+        if let folderID = payload.folderID {
+            data["folderId"] = folderID
+        } else {
+            data["folderId"] = NSNull()
+        }
+
+        if let imageURL = imageURL {
+            data["imageUrl"] = imageURL.absoluteString
+        }
+
+        try await db
+            .collection("users")
+            .document(userId)
+            .collection("receipts")
+            .document(id)
+            .updateData(data)
+    }
 }
 
