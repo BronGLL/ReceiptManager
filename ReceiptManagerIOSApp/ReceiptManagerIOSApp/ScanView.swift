@@ -222,10 +222,14 @@ struct ScanView: View {
             // Prevent accidental swipe to dismiss
             .interactiveDismissDisabled(true)
         })
+        
         // OCR Debug sheet
+        /* USE FOR TESTING PURPOSES
         .sheet(item: $ocrDocument) { doc in
             OCRDebugView(document: doc)
         }
+         */
+        
         // Confirmation prompt
         .confirmationDialog("Upload this receipt?", isPresented: $showConfirm, titleVisibility: .visible) {
             Button(isUploading ? "Uploading..." : "Upload") {
@@ -286,21 +290,24 @@ struct ScanView: View {
             
             let uploader = ReceiptUploader()
             
-            let receiptId = try await uploader.createReceiptDocument(
+            guard let receiptDoc = ocrDocument else {
+                uploadErrorMessage = "OCR not finished."
+                return
+            }
+
+            // Upload full OCR results + image
+            _ = try await uploader.upload(
+                receipt: receiptDoc,
+                image: imageToUpload,
                 forUser: uid,
-                storeName: "Scanned Receipt"
-            )
-            
-            let url = try await uploader.uploadReceiptImage(
-                imageToUpload,
-                forUser: uid,
-                receiptId: receiptId
+                folderID: nil   // Placeholder
             )
 
             
             try await Task.sleep(nanoseconds: 300_000_000)
             didSkipCrop = false
             croppedImage = nil
+            ocrDocument = nil
             capturedItem = nil
             showConfirm = false
             withAnimation { showCamera = false }
