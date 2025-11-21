@@ -2,8 +2,6 @@
 //  ScanView.swift
 //  ReceiptManagerIOSApp
 //
-//  Created by Bronsen Laine-Lasala on 10/17/25.
-//
 
 import SwiftUI
 import PhotosUI
@@ -26,16 +24,23 @@ struct ScanView: View {
     @State private var hasRunOCR = false
 
     // MARK: - Multi-photo cropping
-    @State private var selectedItems: [PhotosPickerItem] = []
     @State private var imagesToProcess: [UIImage] = []
     @State private var croppedImages: [UIImage] = []
     @State private var showingMultiCrop = false
 
+    // Edit screen navigation
+    @State private var navigateToEdit = false
 
-    // MARK: - Confirmation & Upload
+    // Confirmation / upload
     @State private var showConfirm = false
     @State private var isUploading = false
     @State private var uploadErrorMessage: String?
+    @State private var showFolderPicker = false
+    
+    @State private var folders: [FirestoreService.FolderData] = []
+    @State private var selectedFolderId: String? = nil
+    private let firestore = FirestoreService()
+    private let uploader = ReceiptUploader()
 
     var body: some View {
         ZStack {
@@ -44,22 +49,8 @@ struct ScanView: View {
         }
         .navigationTitle("Scan")
         .statusBarHidden(true)
-        .alert("Camera Access Needed", isPresented: Binding(
-            get: { camera.lastError == .unauthorized },
-            set: { _ in }
-        )) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Please enable camera access in Settings to scan receipts.")
-        }
-        .alert("Error", isPresented: Binding(
-            get: { uploadErrorMessage != nil },
-            set: { newValue in if !newValue { uploadErrorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { uploadErrorMessage = nil }
-        } message: {
-            Text(uploadErrorMessage ?? "Unknown error")
-        }
+        .cameraAccessAlert(camera: camera)
+        .genericErrorAlert(message: $uploadErrorMessage)
 
         // Multi-image crop
         .fullScreenCover(isPresented: $showingMultiCrop) {
@@ -68,39 +59,66 @@ struct ScanView: View {
                 croppedImages: $croppedImages
             )
             .onDisappear {
-                // Only show confirmation if we have cropped images
+                // Trigger OCR if there are cropped images
                 if !croppedImages.isEmpty {
-                    showConfirm = true
+                    Task { await runOCROnAllCroppedImages() }
+                    navigateToEdit = true
                 } else if !imagesToProcess.isEmpty {
                     // fallback: no crop done, use original images
                     croppedImages = imagesToProcess
-                    showConfirm = true
+                    Task { await runOCROnAllCroppedImages() }
+                    navigateToEdit = true
                 }
-
-                // Clear imagesToProcess; croppedImages will be used for upload
                 imagesToProcess = []
                 hasRunOCR = false
             }
-        }        // Trigger OCR after croppedImages update
-        .onChange(of: croppedImages) { oldValue, newValue in
-            guard !newValue.isEmpty, !hasRunOCR else { return }
-            hasRunOCR = true
-            Task { await runOCROnAllCroppedImages() }
         }
 
-//        // Show OCR debug sheet
-//        .sheet(item: $ocrDocument) { doc in
-//            OCRDebugView(document: doc)
-//        }
+        // Edit navigation
+        .editNavigationLink(
+            ocrDocument: ocrDocument,
+            isActive: $navigateToEdit,
+            onCancel: { resetForRetake() },
+            onSaveAndUpload: { edited in
+                ocrDocument = edited
+                Task {
+                    await MainActor.run {
+                        navigateToEdit = false
+                    }
+                    await showFolderPickerFlow()
+                }
+            }
+        )
+
         
-        .confirmationDialog("Upload this receipt?", isPresented: $showConfirm, titleVisibility: .visible) {
-            Button(isUploading ? "Uploading..." : "Upload") { Task { await uploadFinalImages() } }
-                .disabled(isUploading)
-            Button("Retake", role: .destructive, action: retakeReceipt)
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Make sure the receipt is clearly visible and readable.")
-        }
+        // Folder picker sheet
+        .folderPickerSheet(
+            isPresented: $showFolderPicker,
+            folders: folders,
+            onSelect: { id in
+                selectedFolderId = id
+                showConfirm = true
+            },
+            onNone: {
+                selectedFolderId = nil
+                showConfirm = true
+            }
+        )
+
+        // Final confirmation
+        .finalUploadConfirmation(
+            isPresented: $showConfirm,
+            isUploading: isUploading,
+            selectedFolderId: selectedFolderId,
+            folders: folders,
+            chooseFolder: {
+                Task { await loadFolders() }
+                showFolderPicker = true
+            },
+            uploadAction: {
+                Task { await uploadFinalImages() }
+            }
+        )
     }
 
     // MARK: - Camera View
@@ -113,10 +131,9 @@ struct ScanView: View {
 
                 CenterReticle()
 
-                // Top buttons: Cancel (left) and Crop Receipt (right)
+                // Top buttons: Cancel and MultiCrop
                 VStack {
                     HStack {
-                        // Cancel button
                         Button {
                             withAnimation { showCamera = false }
                             camera.stopSession()
@@ -133,7 +150,6 @@ struct ScanView: View {
                             withAnimation { showCamera = false }
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                // Thumbnail: last captured image or placeholder
                                 if let lastImage = imagesToProcess.last {
                                     Image(uiImage: lastImage)
                                         .resizable()
@@ -146,7 +162,6 @@ struct ScanView: View {
                                                 .stroke(Color.white.opacity(0.8), lineWidth: 1)
                                         )
                                 } else {
-                                    // Placeholder
                                     Rectangle()
                                         .fill(Color.white.opacity(0.2))
                                         .frame(width: 50, height: 50)
@@ -156,8 +171,6 @@ struct ScanView: View {
                                                 .stroke(Color.white.opacity(0.8), lineWidth: 1)
                                         )
                                 }
-                                
-                                // Badge with number of photos taken
                                 if !imagesToProcess.isEmpty {
                                     Text("\(imagesToProcess.count)")
                                         .font(.caption2.bold())
@@ -174,7 +187,7 @@ struct ScanView: View {
                     Spacer()
                 }
 
-                // Bottom centered capture button
+                // Bottom capture button
                 VStack {
                     Spacer()
                     Button {
@@ -220,15 +233,6 @@ struct ScanView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .padding(.horizontal)
-
-                Button {
-                    // TO DO
-                } label: {
-                    Label("Choose From Library", systemImage: "photo.on.rectangle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .padding(.horizontal)
             }
             .padding()
         }
@@ -255,21 +259,16 @@ struct ScanView: View {
         do {
             let image = try await camera.capturePhoto()
             await MainActor.run {
-                imagesToProcess.append(image) // <- accumulate for multicrop
+                imagesToProcess.append(image)
             }
         } catch {
             await MainActor.run { uploadErrorMessage = error.localizedDescription }
         }
     }
 
-
     // MARK: - OCR
-    private func finishReceiptOCR() {
-        guard !croppedImages.isEmpty else { return }
-        Task { await runOCROnAllCroppedImages() }
-    }
-
     private func runOCROnAllCroppedImages() async {
+        guard !croppedImages.isEmpty else { return }
         var combinedText = ""
         for image in croppedImages {
             do {
@@ -280,41 +279,29 @@ struct ScanView: View {
             }
         }
         let mergedDoc = ReceiptDocument(id: UUID(), rawText: combinedText)
+        await MainActor.run { ocrDocument = mergedDoc }
+    }
+
+    // MARK: - Upload / Folder
+    private func showFolderPickerFlow() async {
+        if folders.isEmpty {
+            do {
+                folders = try await firestore.fetchFolders()
+            } catch {
+                await MainActor.run { uploadErrorMessage = error.localizedDescription }
+                return
+            }
+        }
         await MainActor.run {
-            ocrDocument = mergedDoc
+            showFolderPicker = true
         }
     }
 
-    func stitchImagesVertically(_ images: [UIImage]) -> UIImage? {
-        guard !images.isEmpty else { return nil }
-        
-        // Find the max width
-        let maxWidth = images.map { $0.size.width }.max() ?? 0
-        
-        // Calculate total height after scaling images proportionally to maxWidth
-        let totalHeight = images.reduce(0) { total, image in
-            let scaleFactor = maxWidth / image.size.width
-            return total + (image.size.height * scaleFactor)
-        }
-        
-        // Begin graphics context
-        UIGraphicsBeginImageContextWithOptions(CGSize(width: maxWidth, height: totalHeight), false, 0)
-        
-        var yOffset: CGFloat = 0
-        for image in images {
-            let scaleFactor = maxWidth / image.size.width
-            let newHeight = image.size.height * scaleFactor
-            image.draw(in: CGRect(x: 0, y: yOffset, width: maxWidth, height: newHeight))
-            yOffset += newHeight
-        }
-        
-        let stitchedImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        
-        return stitchedImage
+    private func loadFolders() async {
+        do { folders = try await firestore.fetchFolders() }
+        catch { uploadErrorMessage = error.localizedDescription }
     }
-    
-    // MARK: - Upload & Retake
+
     private func uploadFinalImages() async {
         guard !isUploading, !croppedImages.isEmpty else { return }
         isUploading = true
@@ -326,33 +313,60 @@ struct ScanView: View {
                 return
             }
 
-            let uploader = ReceiptUploader()
             let receiptId = try await uploader.createReceiptDocument(forUser: uid, storeName: "Scanned Receipt")
-            
-            // Stitch images
             if let finalImage = stitchImagesVertically(croppedImages) {
                 _ = try await uploader.uploadReceiptImage(finalImage, forUser: uid, receiptId: receiptId)
             }
 
-            // ✅ Reset everything for next receipt
+            // Reset everything
             croppedImages.removeAll()
             imagesToProcess.removeAll()
             showConfirm = false
             hasRunOCR = false
             withAnimation { showCamera = false }
-            camera.startSession()
         } catch {
             uploadErrorMessage = error.localizedDescription
         }
     }
 
     private func retakeReceipt() {
-        croppedImages = []
-        imagesToProcess = []
+        croppedImages.removeAll()
+        imagesToProcess.removeAll()
         showConfirm = false
         hasRunOCR = false
         withAnimation { showCamera = true }
         camera.startSession()
+    }
+
+    private func resetForRetake() {
+        croppedImages.removeAll()
+        imagesToProcess.removeAll()
+        ocrDocument = nil
+        selectedFolderId = nil
+        showConfirm = false
+        navigateToEdit = false
+        if showCamera { camera.startSession() }
+    }
+
+    // MARK: - Image Stitching
+    func stitchImagesVertically(_ images: [UIImage]) -> UIImage? {
+        guard !images.isEmpty else { return nil }
+        let maxWidth = images.map { $0.size.width }.max() ?? 0
+        let totalHeight = images.reduce(0) { total, image in
+            let scale = maxWidth / image.size.width
+            return total + (image.size.height * scale)
+        }
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: maxWidth, height: totalHeight), false, 0)
+        var yOffset: CGFloat = 0
+        for image in images {
+            let scale = maxWidth / image.size.width
+            let newHeight = image.size.height * scale
+            image.draw(in: CGRect(x: 0, y: yOffset, width: maxWidth, height: newHeight))
+            yOffset += newHeight
+        }
+        let stitched = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        return stitched
     }
 }
 
@@ -364,17 +378,158 @@ private struct CenterReticle: View {
             let thickness: CGFloat = 2
             let color: Color = .white
             ZStack {
-                Rectangle()
-                    .fill(color.opacity(0.9))
-                    .frame(width: thickness, height: 60)
-                Rectangle()
-                    .fill(color.opacity(0.9))
-                    .frame(width: 60, height: thickness)
+                Rectangle().fill(color.opacity(0.9)).frame(width: thickness, height: 60)
+                Rectangle().fill(color.opacity(0.9)).frame(width: 60, height: thickness)
             }
             .frame(width: size, height: size)
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
             .shadow(radius: 2)
         }
         .allowsHitTesting(false)
+    }
+}
+
+
+private extension View {
+    func cameraAccessAlert(camera: CameraController) -> some View {
+        alert("Camera Access Needed", isPresented: Binding(
+            get: { camera.lastError == .unauthorized },
+            set: { _ in }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Please enable camera access in Settings to scan receipts.")
+        }
+    }
+
+    func genericErrorAlert(message: Binding<String?>) -> some View {
+        alert("Error", isPresented: Binding(
+            get: { message.wrappedValue != nil },
+            set: { newValue in if !newValue { message.wrappedValue = nil } }
+        )) {
+            Button("OK", role: .cancel) { message.wrappedValue = nil }
+        } message: {
+            Text(message.wrappedValue ?? "Unknown error")
+        }
+    }
+
+    func cropperCover(
+        capturedItem: Binding<CapturedImageItem?>,
+        showCamera: Binding<Bool>,
+        didSkipCrop: Binding<Bool>,
+        croppedImage: Binding<UIImage?>,
+        camera: CameraController,
+        runOCR: @escaping (UIImage) async -> Void
+    ) -> some View {
+        fullScreenCover(item: capturedItem, onDismiss: {
+            // After crop/skip, navigation to edit happens when OCR completes
+        }, content: { item in
+            CropView(
+                image: item.image,
+                onCancel: {
+                    didSkipCrop.wrappedValue = false
+                    croppedImage.wrappedValue = nil
+                    capturedItem.wrappedValue = nil
+                    if showCamera.wrappedValue {
+                        camera.startSession()
+                    }
+                },
+                onSkip: {
+                    didSkipCrop.wrappedValue = true
+                    croppedImage.wrappedValue = nil
+                    capturedItem.wrappedValue = nil
+                    Task { await runOCR(item.image) }
+                },
+                onCropped: { result in
+                    didSkipCrop.wrappedValue = false
+                    croppedImage.wrappedValue = result
+                    capturedItem.wrappedValue = nil
+                    Task { await runOCR(result) }
+                }
+            )
+            .interactiveDismissDisabled(true)
+        })
+    }
+
+    func editNavigationLink(
+        ocrDocument: ReceiptDocument?,
+        isActive: Binding<Bool>,
+        onCancel: @escaping () -> Void,
+        onSaveAndUpload: @escaping (ReceiptDocument) -> Void
+    ) -> some View {
+        background {
+            NavigationLink(
+                isActive: isActive,
+                destination: {
+                    if let doc = ocrDocument {
+                        EditReceiptView(
+                            original: doc,
+                            onCancel: onCancel,
+                            onSaveAndUpload: onSaveAndUpload
+                        )
+                    } else {
+                        EmptyView()
+                    }
+                },
+                label: {
+                    EmptyView()
+                }
+            )
+            .hidden()
+        }
+    }
+
+    func folderPickerSheet(
+        isPresented: Binding<Bool>,
+        folders: [FirestoreService.FolderData],
+        onSelect: @escaping (String?) -> Void,
+        onNone: @escaping () -> Void
+    ) -> some View {
+        sheet(isPresented: isPresented) {
+            NavigationStack {
+                List {
+                    Section("Choose a folder") {
+                        Button("None") {
+                            isPresented.wrappedValue = false
+                            onNone()
+                        }
+                        ForEach(folders, id: \.id) { folder in
+                            Button(folder.name) {
+                                isPresented.wrappedValue = false
+                                onSelect(folder.id)
+                                
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("Select Folder")
+            }
+        }
+    }
+
+    func finalUploadConfirmation(
+        isPresented: Binding<Bool>,
+        isUploading: Bool,
+        selectedFolderId: String?,
+        folders: [FirestoreService.FolderData],
+        chooseFolder: @escaping () -> Void,
+        uploadAction: @escaping () -> Void
+    ) -> some View {
+        confirmationDialog(
+            selectedFolderId == nil
+                ? "Upload this receipt?"
+                : "Upload to folder: \(folders.first(where: { $0.id == selectedFolderId })?.name ?? "Folder")",
+            isPresented: isPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Choose Folder") { chooseFolder() }
+            Button(isUploading ? "Uploading..." : "Upload") {
+                uploadAction()
+            }
+            .disabled(isUploading)
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Review your edits, then upload.")
+        }
     }
 }

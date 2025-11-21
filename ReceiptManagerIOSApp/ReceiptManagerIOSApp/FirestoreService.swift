@@ -17,11 +17,55 @@ struct Receipt: Codable, Identifiable {
     var tax: Double
     var totalAmount: Double
     var createdAt: Date
+    var updatedAt: Date
     var folderId: String?
+    var imageUrl: String?
+    var ocrDocument: String?
 }
 
 class FirestoreService {
     private let db = Firestore.firestore()
+    
+    func createReceiptFromOCR(
+            ocr: ReceiptDocument,
+            payload: ReceiptDocument.FirestorePayload,
+            imageURL: URL,
+            folderId: String?
+        ) async throws -> String {
+
+            guard let userId = Auth.auth().currentUser?.uid else {
+                throw NSError(domain: "FirestoreService", code: 401,
+                              userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
+            }
+
+            let receiptsRef = db
+                .collection("users")
+                .document(userId)
+                .collection("receipts")
+
+            let docRef = receiptsRef.document()
+
+            // Encode full OCR document
+            let encodedReceiptData = try JSONEncoder().encode(ocr)
+            let encodedReceiptString = encodedReceiptData.base64EncodedString()
+
+            var data: [String: Any] = [
+                "storeName": payload.storeName,
+                "category": payload.receiptCategory,
+                "totalAmount": payload.totalAmount,
+                "tax": payload.tax,
+                "date": Timestamp(date: payload.date),
+                "extractedText": payload.extractedText,
+                "ocrDocument": encodedReceiptString,
+                "folderId": folderId ?? NSNull(),
+                "imageUrl": imageURL.absoluteString,
+                "createdAt": Timestamp(date: Date()),
+                "updatedAt": Timestamp(date: Date())
+            ]
+
+            try await docRef.setData(data)
+            return docRef.documentID
+        }
     
     func addReceipt(
         storeName: String,
@@ -172,5 +216,70 @@ class FirestoreService {
             "folderId": folderId ?? NSNull()
         ])
     }
-}
+    
+    func fetchReceiptDetail(id: String) async throws -> Receipt {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(
+                domain: "FirestoreService",
+                code: 401,
+                userInfo: [NSLocalizedDescriptionKey: "User not logged in"]
+            )
+        }
 
+        let doc = try await db
+            .collection("users")
+            .document(userId)
+            .collection("receipts")
+            .document(id)
+            .getDocument()
+
+        guard let receipt = try? doc.data(as: Receipt.self) else {
+            throw NSError(
+                domain: "FirestoreService",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Receipt not found"]
+            )
+        }
+
+        return receipt
+    }
+
+    // NEW: Update existing receipt with edited fields
+    func updateReceipt(
+        id: String,
+        with payload: ReceiptDocument.FirestorePayload,
+        imageURL: URL? = nil
+    ) async throws {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "FirestoreService", code: 401,
+                          userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
+        }
+
+        var data: [String: Any] = [
+            "storeName": payload.storeName,
+            "category": payload.receiptCategory,
+            "totalAmount": payload.totalAmount,
+            "tax": payload.tax,
+            "date": Timestamp(date: payload.date),
+            "extractedText": payload.extractedText,
+            "updatedAt": Timestamp(date: Date())
+        ]
+
+        if let folderID = payload.folderID {
+            data["folderId"] = folderID
+        } else {
+            data["folderId"] = NSNull()
+        }
+
+        if let imageURL = imageURL {
+            data["imageUrl"] = imageURL.absoluteString
+        }
+
+        try await db
+            .collection("users")
+            .document(userId)
+            .collection("receipts")
+            .document(id)
+            .updateData(data)
+    }
+}
