@@ -102,4 +102,26 @@ final class ReceiptUploader {
         
         try await docRef.updateData(data)
     }
+
+    func updateReceiptDocument(forUser userId: String, receiptId: String, payload: ReceiptDocument.FirestorePayload, imageURL: URL) async throws {
+        let docRef = db.collection("users").document(userId).collection("receipts").document(receiptId)
+        
+        var data: [String: Any] = [
+                "storeName": payload.storeName,
+                "totalAmount": payload.totalAmount,
+                "date": Timestamp(date: payload.date),
+                "receiptCategory": payload.receiptCategory,
+                "tax": payload.tax,
+                "extractedText": payload.extractedText,
+                "imageUrl": imageURL.absoluteString
+        ]
+        
+        if let folderID = payload.folderID {
+                data["folderID"] = folderID
+        }
+        
+        data["imageUrl"] = imageURL.absoluteString
+        
+        try await docRef.updateData(data)
+    }
 }

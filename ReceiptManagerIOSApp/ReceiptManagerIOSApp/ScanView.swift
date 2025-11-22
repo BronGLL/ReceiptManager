@@ -394,7 +394,8 @@ struct ScanView: View {
         } catch {
             await MainActor.run { uploadErrorMessage = error.localizedDescription }
         }
-
+    }
+    
     // MARK: - Upload Integration (now accepts edited doc)
     private func uploadFinalImage(with document: ReceiptDocument) async {
         guard !isUploading, !croppedImages.isEmpty else { return }
@@ -420,6 +421,11 @@ struct ScanView: View {
                 return
             }
 
+            guard let finalImage = stitchImagesVertically(croppedImages) else {
+                uploadErrorMessage = "Failed to stitch images."
+                return
+            }
+
             // 1️⃣ Create a single receipt document
             let receiptId = try await uploader.createReceiptDocument(forUser: uid,
                                                                      storeName: payload.storeName,
@@ -437,6 +443,8 @@ struct ScanView: View {
             uploadErrorMessage = error.localizedDescription
         }
     }
+
+
 
     private func loadFolders() async {
         do { folders = try await firestore.fetchFolders() }
@@ -654,5 +662,3 @@ func stitchImagesVertically(_ images: [UIImage]) -> UIImage? {
         UIGraphicsEndImageContext()
         
         return stitchedImage
-    }
-
