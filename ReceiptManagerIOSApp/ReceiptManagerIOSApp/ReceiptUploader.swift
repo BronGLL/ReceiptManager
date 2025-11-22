@@ -8,14 +8,11 @@
 import Foundation
 import UIKit
 import FirebaseStorage
-import FirebaseFirestore
 import FirebaseAuth
-
 
 @MainActor
 final class ReceiptUploader {
     private let storage = Storage.storage()
-    private let db = Firestore.firestore()
 
     func createReceiptDocument(forUser userId: String,
                                storeName: String,
