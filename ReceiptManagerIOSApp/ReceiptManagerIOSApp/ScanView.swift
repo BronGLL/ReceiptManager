@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
-import PhotosUI
 import AVFoundation
+import UIKit
 import FirebaseAuth
+import FirebaseStorage
+import FirebaseFirestore
 
 private struct CapturedImageItem: Identifiable {
     let id = UUID()
@@ -17,7 +19,6 @@ private struct CapturedImageItem: Identifiable {
 
 
 struct ScanView: View {
-    // MARK: - Camera
     @StateObject private var camera = CameraController()
     @State private var showCamera = false
 
@@ -32,17 +33,19 @@ struct ScanView: View {
     private let ocrService = OCRService()
     @State private var didRunOCR = false
 
-    // MARK: - Multi-photo cropping
-    @State private var selectedItems: [PhotosPickerItem] = []
-    @State private var imagesToProcess: [UIImage] = []
-    @State private var croppedImages: [UIImage] = []
-    @State private var showingMultiCrop = false
+    // Edit screen navigation
+    @State private var navigateToEdit = false
 
-
-    // MARK: - Confirmation & Upload
+    // Confirmation (kept for folder selection after edit)
     @State private var showConfirm = false
     @State private var isUploading = false
     @State private var uploadErrorMessage: String?
+    
+    @State private var folders: [FirestoreService.FolderData] = []
+    @State private var selectedFolderId: String? = nil
+    private let firestore = FirestoreService()
+    private let uploader = ReceiptUploader()
+    @State private var showFolderPicker = false
 
     var body: some View {
         contentView
@@ -56,150 +59,73 @@ struct ScanView: View {
                 didRunOCR: $didRunOCR,
                 runOCR: runOCR
             )
-            .onDisappear {
-                // Only show confirmation if we have cropped images
-                if !croppedImages.isEmpty {
-                    showConfirm = true
-                } else if !imagesToProcess.isEmpty {
-                    // fallback: no crop done, use original images
-                    croppedImages = imagesToProcess
+            .editNavigationLink(
+                ocrDocument: ocrDocument,
+                isActive: $navigateToEdit,
+                onCancel: { resetForRetake() },
+                onSaveAndUpload: { edited in
+                    // 1) Dismiss Edit screen
+                    navigateToEdit = false
+                    // 2) Keep the edited document
+                    ocrDocument = edited
                     showConfirm = true
                 }
-
-                // Clear imagesToProcess; croppedImages will be used for upload
-                imagesToProcess = []
-                hasRunOCR = false
-            }
-        }        // Trigger OCR after croppedImages update
-        .onChange(of: croppedImages) { oldValue, newValue in
-            guard !newValue.isEmpty, !hasRunOCR else { return }
-            hasRunOCR = true
-            Task { await runOCROnAllCroppedImages() }
-        }
-
-//        // Show OCR debug sheet
-//        .sheet(item: $ocrDocument) { doc in
-//            OCRDebugView(document: doc)
-//        }
-        
-        .confirmationDialog("Upload this receipt?", isPresented: $showConfirm, titleVisibility: .visible) {
-            Button(isUploading ? "Uploading..." : "Upload") { Task { await uploadFinalImages() } }
-                .disabled(isUploading)
-            Button("Retake", role: .destructive, action: retakeReceipt)
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Make sure the receipt is clearly visible and readable.")
-        }
-    }
-
-    // MARK: - Camera View
-    @ViewBuilder
-    private var cameraView: some View {
-        if showCamera {
-            ZStack {
-                CameraPreviewView(session: camera.session)
-                    .ignoresSafeArea()
-
-                CenterReticle()
-
-                // Top buttons: Cancel (left) and Crop Receipt (right)
-                VStack {
-                    HStack {
-                        // Cancel button
-                        Button {
-                            withAnimation { showCamera = false }
-                            camera.stopSession()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .shadow(radius: 2)
-                        }
-                        Spacer()
-
-                        Button {
-                            showingMultiCrop = true
-                            withAnimation { showCamera = false }
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                // Thumbnail: last captured image or placeholder
-                                if let lastImage = imagesToProcess.last {
-                                    Image(uiImage: lastImage)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 50, height: 50)
-                                        .clipped()
-                                        .cornerRadius(8)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(Color.white.opacity(0.8), lineWidth: 1)
-                                        )
-                                } else {
-                                    // Placeholder
-                                    Rectangle()
-                                        .fill(Color.white.opacity(0.2))
-                                        .frame(width: 50, height: 50)
-                                        .cornerRadius(8)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(Color.white.opacity(0.8), lineWidth: 1)
-                                        )
-                                }
-                                
-                                // Badge with number of photos taken
-                                if !imagesToProcess.isEmpty {
-                                    Text("\(imagesToProcess.count)")
-                                        .font(.caption2.bold())
-                                        .foregroundColor(.white)
-                                        .padding(6)
-                                        .background(Circle().fill(Color.accentColor))
-                                        .offset(x: 8, y: -8)
-                                }
-                            }
-                        }
-                        .disabled(imagesToProcess.isEmpty)
-                    }
-                    .padding()
-                    Spacer()
+            )
+            .folderPickerSheet(
+                isPresented: $showFolderPicker,
+                folders: folders,
+                onSelect: { id in
+                    selectedFolderId = id
+                    showFolderPicker = false
+                    showConfirm = true
+                },
+                onNone: {
+                    selectedFolderId = nil
+                    showFolderPicker = false
+                    showConfirm = true
                 }
-
-                // Bottom centered capture button
-                VStack {
-                    Spacer()
-                    Button {
-                        Task { await capturePhoto() }
-                    } label: {
-                        ZStack {
-                            Circle().fill(.white).frame(width: 66, height: 66)
-                            Circle().stroke(.white.opacity(0.8), lineWidth: 2).frame(width: 74, height: 74)
+            )
+            .finalUploadConfirmation(
+                isPresented: $showConfirm,
+                isUploading: isUploading,
+                selectedFolderId: selectedFolderId,
+                folders: folders,
+                chooseFolder: {
+                    Task { await loadFolders() }
+                    showFolderPicker = true
+                },
+                uploadAction: {
+                    Task {
+                        if let doc = ocrDocument {
+                            await uploadFinalImage(with: doc)
                         }
                     }
-                    .padding(.bottom, 24)
                 }
-            }
-            .onAppear { Task { await setupCamera() } }
-            .onDisappear { camera.stopSession() }
-        }
+            )
     }
 
+    // MARK: - Split main branches
+
     @ViewBuilder
-    private var landingView: some View {
-        if !showCamera {
-            VStack(spacing: 16) {
-                Image(systemName: "camera.viewfinder")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 120)
-                    .foregroundStyle(.tint)
+    private var contentView: some View {
+        ZStack {
+            if showCamera {
+                cameraContent
+            } else {
+                landingContent
+            }
+        }
+        .navigationBarBackButtonHidden(showCamera)
+        .toolbar(showCamera ? .hidden : .automatic, for: .navigationBar)
+        .toolbar(showCamera ? .hidden : .automatic, for: .tabBar)
+    }
 
-                Text("Scan Receipts")
-                    .font(.title)
-                    .fontWeight(.semibold)
+    private var cameraContent: some View {
+        ZStack {
+            CameraPreviewView(session: camera.session)
+                .ignoresSafeArea(.all)
 
-                Text("Use your iPhone camera to capture receipt images. Place receipts on a dark background for better contrast.")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal)
+            CenterReticle()
 
             VStack {
                 Text("Tip: Place receipt on a dark background for best results.")
@@ -355,44 +281,37 @@ struct ScanView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
 
-                Button {
-                    // TO DO
-                } label: {
-                    Label("Choose From Library", systemImage: "photo.on.rectangle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .padding(.horizontal)
+            Button {
+                withAnimation { showCamera = true }
+            } label: {
+                Label("Open Camera", systemImage: "camera")
+                    .frame(maxWidth: .infinity)
             }
-            .padding()
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal)
         }
+        .padding()
     }
 
-    // MARK: - Camera & Capture
-    private func setupCamera() async {
-        await camera.checkPermissions()
-        if camera.isAuthorized {
-            await camera.configureSession()
-            camera.startSession()
-            await waitUntilSessionRunning()
-        }
-    }
-
+    // Wait until the session is reported running (with a short timeout)
     private func waitUntilSessionRunning(timeout: TimeInterval = 1.0) async {
         let start = Date()
         while !camera.isSessionRunning && Date().timeIntervalSince(start) < timeout {
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
         }
     }
 
-    private func capturePhoto() async {
+    // MARK: - OCR Integration
+
+    private func runOCR(on image: UIImage) async {
         do {
-            let image = try await camera.capturePhoto()
+            let doc = try await ocrService.process(image: image)
             await MainActor.run {
-                imagesToProcess.append(image) // <- accumulate for multicrop
+                ocrDocument = doc
+                navigateToEdit = true
             }
         } catch {
-            await MainActor.run { uploadErrorMessage = error.localizedDescription }
+            uploadErrorMessage = "OCR failed: \(error.localizedDescription)"
         }
     }
     
@@ -408,16 +327,8 @@ struct ScanView: View {
                 return
             }
 
-            let uploader = ReceiptUploader()
-            let receiptId = try await uploader.createReceiptDocument(forUser: uid, storeName: "Scanned Receipt")
-            
-            // Stitch images
-            if let finalImage = stitchImagesVertically(croppedImages) {
-                _ = try await uploader.uploadReceiptImage(finalImage, forUser: uid, receiptId: receiptId)
-            }
-
-            guard let finalImage = stitchImagesVertically(croppedImages) else {
-                uploadErrorMessage = "Failed to stitch images."
+            guard let payload = document.makeFirestorePayload(folderID: selectedFolderId) else {
+                uploadErrorMessage = "Missing required fields (Store, Total, Date)."
                 return
             }
 
@@ -474,13 +385,13 @@ struct ScanView: View {
     }
 }
 
-// MARK: - Center Reticle
 private struct CenterReticle: View {
     var body: some View {
         GeometryReader { geo in
             let size: CGFloat = 24
             let thickness: CGFloat = 2
             let color: Color = .white
+
             ZStack {
                 Rectangle()
                     .fill(color.opacity(0.9))
@@ -492,6 +403,7 @@ private struct CenterReticle: View {
             .frame(width: size, height: size)
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
             .shadow(radius: 2)
+            .accessibilityHidden(true)
         }
         .allowsHitTesting(false)
     }
@@ -662,3 +574,6 @@ func stitchImagesVertically(_ images: [UIImage]) -> UIImage? {
         UIGraphicsEndImageContext()
         
         return stitchedImage
+    }
+
+
