@@ -220,4 +220,3 @@ struct MultiCropView: View {
         }
     }
 }
-
