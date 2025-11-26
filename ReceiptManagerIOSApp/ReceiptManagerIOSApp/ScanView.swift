@@ -17,18 +17,21 @@ private struct CapturedImageItem: Identifiable {
     let image: UIImage
 }
 
+
 struct ScanView: View {
     @StateObject private var camera = CameraController()
     @State private var showCamera = false
 
     // Capture and crop flow
-    @State private var capturedItem: CapturedImageItem?
-    @State private var croppedImage: UIImage?
+    @State private var capturedItems: [CapturedImageItem] = []
+    @State private var croppedImages: [UIImage] = []
     @State private var didSkipCrop = false
+    @State private var showMultiCrop = false
 
     // OCR
     @State private var ocrDocument: ReceiptDocument?
     private let ocrService = OCRService()
+    @State private var didRunOCR = false
 
     // Edit screen navigation
     @State private var navigateToEdit = false
@@ -49,12 +52,11 @@ struct ScanView: View {
             .navigationTitle("Scan")
             .cameraAccessAlert(camera: camera)
             .genericErrorAlert(message: $uploadErrorMessage)
-            .cropperCover(
-                capturedItem: $capturedItem,
-                showCamera: $showCamera,
-                didSkipCrop: $didSkipCrop,
-                croppedImage: $croppedImage,
-                camera: camera,
+            .multiCropperCover(
+                capturedItems: $capturedItems,
+                croppedImages: $croppedImages,
+                showMultiCrop: $showMultiCrop,
+                didRunOCR: $didRunOCR,
                 runOCR: runOCR
             )
             .editNavigationLink(
@@ -159,47 +161,106 @@ struct ScanView: View {
 
     private var captureControls: some View {
         ZStack {
-            Button {
-                Task {
-                    do {
-                        let image = try await camera.capturePhoto()
-                        await MainActor.run {
-                            didSkipCrop = false
-                            croppedImage = nil
-                            capturedItem = CapturedImageItem(image: image)
+            HStack {
+                Spacer()
+
+                // Preview button (shows number of captured photos)
+                
+                Button {
+                    showMultiCrop = true
+                    showCamera = false // temporarily hide camera to trigger fullScreenCover
+                } label: {
+                    ZStack(alignment: .topTrailing) {
+                        // Thumbnail of last photo
+                        if let last = capturedItems.last?.image {
+                            Image(uiImage: last)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 50, height: 50)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(.white, lineWidth: 1)
+                                )
+                        } else {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(.white.opacity(0.3))
+                                .frame(width: 50, height: 50)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.white.opacity(0.6), lineWidth: 1)
+                                )
                         }
-                        camera.stopSession()
-                    } catch {
-                        await MainActor.run {
-                            uploadErrorMessage = error.localizedDescription
+
+                        // Count badge
+                        if !capturedItems.isEmpty {
+                            Text("\(capturedItems.count)")
+                                .font(.caption2.bold())
+                                .foregroundColor(.white)
+                                .padding(4)
+                                .background(.blue, in: Circle())
+                                .offset(x: 8, y: -8)
                         }
                     }
                 }
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(.white)
-                        .frame(width: 66, height: 66)
-                    Circle()
-                        .stroke(.white.opacity(0.8), lineWidth: 2)
-                        .frame(width: 74, height: 74)
-                }
+                .accessibilityLabel("\(capturedItems.count) photos taken")
+                .disabled(capturedItems.isEmpty)
+                .padding(.trailing, 8)
             }
-            .accessibilityLabel("Capture Photo")
-            .disabled(!camera.isSessionRunning)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .padding(.top, 44)
 
-            HStack {
+            // Capture button (center bottom)
+            VStack {
                 Spacer()
                 Button {
-                    withAnimation { showCamera = false }
+                    Task {
+                        do {
+                            let image = try await camera.capturePhoto()
+                            await MainActor.run {
+                                didSkipCrop = false
+                                croppedImages = []
+                                capturedItems.append(CapturedImageItem(image: image))
+                            }
+                        } catch {
+                            await MainActor.run {
+                                uploadErrorMessage = error.localizedDescription
+                            }
+                        }
+                    }
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .shadow(radius: 2)
+                    ZStack {
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 66, height: 66)
+                        Circle()
+                            .stroke(.white.opacity(0.8), lineWidth: 2)
+                            .frame(width: 74, height: 74)
+                    }
                 }
-                .accessibilityLabel("Close")
+                .accessibilityLabel("Capture Photo")
+                .disabled(!camera.isSessionRunning)
+                .padding(.bottom, 24)
             }
+
+            // Close button (top-left)
+            VStack {
+                HStack {
+                    Button {
+                        withAnimation { showCamera = false }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .shadow(radius: 2)
+                    }
+                    .accessibilityLabel("Close")
+                    Spacer()
+                }
+                Spacer()
+            }
+            .padding(.top, 44)
+            .padding(.horizontal, 16)
         }
     }
 
@@ -253,12 +314,10 @@ struct ScanView: View {
             uploadErrorMessage = "OCR failed: \(error.localizedDescription)"
         }
     }
-
+    
     // MARK: - Upload Integration (now accepts edited doc)
     private func uploadFinalImage(with document: ReceiptDocument) async {
-        guard let imageToUpload = croppedImage ?? capturedItem?.image else { return }
-
-        guard !isUploading else { return }
+        guard !isUploading, !croppedImages.isEmpty else { return }
         isUploading = true
         defer { isUploading = false }
 
@@ -273,28 +332,30 @@ struct ScanView: View {
                 return
             }
 
-            // Upload image to Fire Storage
-            let tempId = UUID().uuidString
-            let imageURL = try await uploader.uploadReceiptImage(
-                imageToUpload,
-                forUser: uid,
-                receiptId: tempId
-            )
+            guard let finalImage = stitchImagesVertically(croppedImages) else {
+                uploadErrorMessage = "Failed to stitch images."
+                return
+            }
 
-            // Write Firestore record
-            _ = try await firestore.createReceiptFromOCR(
-                ocr: document,
-                payload: payload,
-                imageURL: imageURL,
-                folderId: selectedFolderId
-            )
+            // 1️⃣ Create a single receipt document
+            let receiptId = try await uploader.createReceiptDocument(forUser: uid,
+                                                                     storeName: payload.storeName,
+                                                                     totalAmount: payload.totalAmount,
+                                                                     tax: payload.tax)
+
+            // 2️⃣ Upload image
+            let imageURL = try await uploader.uploadReceiptImage(finalImage, forUser: uid, receiptId: receiptId)
+
+            // 3️⃣ Update document with OCR + image
+            try await uploader.updateReceiptDocument(forUser: uid, receiptId: receiptId, payload: payload, imageURL: imageURL)
 
             resetAfterUpload()
-
         } catch {
             uploadErrorMessage = error.localizedDescription
         }
     }
+
+
 
     private func loadFolders() async {
         do { folders = try await firestore.fetchFolders() }
@@ -302,23 +363,25 @@ struct ScanView: View {
     }
 
     private func resetForRetake() {
-        croppedImage = nil
-        capturedItem = nil
+        croppedImages = []
+        capturedItems = []
         ocrDocument = nil
         selectedFolderId = nil
         showConfirm = false
         navigateToEdit = false
+        didRunOCR = false
         if showCamera { camera.startSession() }
     }
 
     private func resetAfterUpload() {
-        croppedImage = nil
-        capturedItem = nil
+        croppedImages = []
+        capturedItems = []
         ocrDocument = nil
         selectedFolderId = nil
         showConfirm = false
         navigateToEdit = false
         showCamera = false
+        didRunOCR = false
     }
 }
 
@@ -375,43 +438,34 @@ private extension View {
         }
     }
 
-    func cropperCover(
-        capturedItem: Binding<CapturedImageItem?>,
-        showCamera: Binding<Bool>,
-        didSkipCrop: Binding<Bool>,
-        croppedImage: Binding<UIImage?>,
-        camera: CameraController,
+    func multiCropperCover(
+        capturedItems: Binding<[CapturedImageItem]>,
+        croppedImages: Binding<[UIImage]>,
+        showMultiCrop: Binding<Bool>,
+        didRunOCR: Binding<Bool>, // <- new
         runOCR: @escaping (UIImage) async -> Void
     ) -> some View {
-        fullScreenCover(item: capturedItem, onDismiss: {
-            // After crop/skip, navigation to edit happens when OCR completes
-        }, content: { item in
-            CropView(
-                image: item.image,
-                onCancel: {
-                    didSkipCrop.wrappedValue = false
-                    croppedImage.wrappedValue = nil
-                    capturedItem.wrappedValue = nil
-                    if showCamera.wrappedValue {
-                        camera.startSession()
-                    }
-                },
-                onSkip: {
-                    didSkipCrop.wrappedValue = true
-                    croppedImage.wrappedValue = nil
-                    capturedItem.wrappedValue = nil
-                    Task { await runOCR(item.image) }
-                },
-                onCropped: { result in
-                    didSkipCrop.wrappedValue = false
-                    croppedImage.wrappedValue = result
-                    capturedItem.wrappedValue = nil
-                    Task { await runOCR(result) }
-                }
+        fullScreenCover(isPresented: showMultiCrop) {
+            MultiCropView(
+                images: Binding(
+                    get: { capturedItems.wrappedValue.map { $0.image } },
+                    set: { _ in }
+                ),
+                croppedImages: croppedImages
             )
             .interactiveDismissDisabled(true)
-        })
+            .onDisappear {
+                Task {
+                    if !didRunOCR.wrappedValue, let stitched = stitchImagesVertically(croppedImages.wrappedValue) {
+                        await runOCR(stitched)
+                        didRunOCR.wrappedValue = true
+                    }
+                    capturedItems.wrappedValue.removeAll()
+                }
+            }
+        }
     }
+
 
     func editNavigationLink(
         ocrDocument: ReceiptDocument?,
@@ -492,4 +546,34 @@ private extension View {
         }
     }
 }
+
+func stitchImagesVertically(_ images: [UIImage]) -> UIImage? {
+        guard !images.isEmpty else { return nil }
+        
+        // Find the max width
+        let maxWidth = images.map { $0.size.width }.max() ?? 0
+        
+        // Calculate total height after scaling images proportionally to maxWidth
+        let totalHeight = images.reduce(0) { total, image in
+            let scaleFactor = maxWidth / image.size.width
+            return total + (image.size.height * scaleFactor)
+        }
+        
+        // Begin graphics context
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: maxWidth, height: totalHeight), false, 0)
+        
+        var yOffset: CGFloat = 0
+        for image in images {
+            let scaleFactor = maxWidth / image.size.width
+            let newHeight = image.size.height * scaleFactor
+            image.draw(in: CGRect(x: 0, y: yOffset, width: maxWidth, height: newHeight))
+            yOffset += newHeight
+        }
+        
+        let stitchedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return stitchedImage
+    }
+
 
