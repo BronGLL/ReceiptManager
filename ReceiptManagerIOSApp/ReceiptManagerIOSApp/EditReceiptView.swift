@@ -184,11 +184,11 @@ struct EditReceiptView: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Upload") {
-                    if let updated = buildEditedDocument() {
-                        onSaveAndUpload(updated)
-                    }
+                    let result = isFormValid()  // Updates state
+                    guard result.isValid, let updated = buildEditedDocument() else { return }
+                    onSaveAndUpload(updated)
                 }
-                .disabled(!isFormValid())
+                .disabled(!isValid)
             }
         }
         .onChange(of: storeName) { _ in _ = isFormValid() }
@@ -236,23 +236,34 @@ struct EditReceiptView: View {
 
     // MARK: - Validation
 
-    private func isFormValid() -> Bool {
+    private func isFormValid() -> (isValid: Bool, message: String?) {
         var errors: [String] = []
+
         if storeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errors.append("Store name is required.")
         }
+
         if parseMoney(totalText) == nil {
             errors.append("Total is required and must be a valid amount (e.g., 12.34).")
         }
-        validationMessage = errors.first
-        isValid = errors.isEmpty
-        return isValid
+
+        // Update state here so SwiftUI sees the changes
+        DispatchQueue.main.async {
+            self.validationMessage = errors.first
+            self.isValid = errors.isEmpty
+        }
+
+        return (errors.isEmpty, errors.first)
     }
+
 
     // MARK: - Build final document
 
     private func buildEditedDocument() -> ReceiptDocument? {
-        guard isFormValid() else { return nil }
+        let result = isFormValid()
+        validationMessage = result.message
+        isValid = result.isValid
+        guard result.isValid else { return nil }
 
         func wrapString(_ value: String, field: FieldType) -> DetectedString {
             DetectedString(value: value, rawText: value, confidence: 1.0, boundingBox: nil, candidates: [], fieldType: field, isUserVerified: true)
