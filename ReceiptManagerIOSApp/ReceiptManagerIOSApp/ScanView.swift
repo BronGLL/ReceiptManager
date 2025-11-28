@@ -68,7 +68,6 @@ struct ScanView: View {
     // OCR
     @State private var ocrDocument: ReceiptDocument?
     private let ocrService = OCRService()
-    @State private var didRunOCR = false
 
     // Edit screen navigation
     @State private var navigateToEdit = false
@@ -290,12 +289,18 @@ struct ScanView: View {
                         }
                     }
                 }
-                .accessibilityLabel("\(capturedItems.count) photos taken")
-                .disabled(capturedItems.isEmpty)
-                .padding(.trailing, 8)
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 66, height: 66)
+                    Circle()
+                        .stroke(.white.opacity(0.8), lineWidth: 2)
+                        .frame(width: 74, height: 74)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .padding(.top, 44)
+            .accessibilityLabel("Capture Photo")
+            .disabled(!camera.isSessionRunning)
 
             Spacer()
 
@@ -392,19 +397,16 @@ struct ScanView: View {
                 receiptId: tempId
             )
 
-            // 1️⃣ Create a single receipt document
-            let receiptId = try await uploader.createReceiptDocument(forUser: uid,
-                                                                     storeName: payload.storeName,
-                                                                     totalAmount: payload.totalAmount,
-                                                                     tax: payload.tax)
-
-            // 2️⃣ Upload image
-            let imageURL = try await uploader.uploadReceiptImage(finalImage, forUser: uid, receiptId: receiptId)
-
-            // 3️⃣ Update document with OCR + image
-            try await uploader.updateReceiptDocument(forUser: uid, receiptId: receiptId, payload: payload, imageURL: imageURL)
+            // Write Firestore record
+            _ = try await firestore.createReceiptFromOCR(
+                ocr: document,
+                payload: payload,
+                imageURL: imageURL,
+                folderId: selectedFolderId
+            )
 
             resetAfterUpload()
+
         } catch {
             uploadErrorMessage = error.localizedDescription
         }
@@ -412,8 +414,6 @@ struct ScanView: View {
     
 
            
-
-
 
 
 
@@ -431,7 +431,6 @@ struct ScanView: View {
         showConfirm = false
         showCropper = false
         navigateToEdit = false
-        didRunOCR = false
         if showCamera { camera.startSession() }
     }
 
@@ -444,7 +443,6 @@ struct ScanView: View {
         showConfirm = false
         navigateToEdit = false
         showCamera = false
-        didRunOCR = false
     }
 }
 
@@ -553,7 +551,6 @@ private extension View {
             )
         }
 
-
     func editNavigationLink(
         ocrDocument: ReceiptDocument?,
         isActive: Binding<Bool>,
@@ -633,34 +630,4 @@ private extension View {
         }
     }
 }
-
-func stitchImagesVertically(_ images: [UIImage]) -> UIImage? {
-        guard !images.isEmpty else { return nil }
-        
-        // Find the max width
-        let maxWidth = images.map { $0.size.width }.max() ?? 0
-        
-        // Calculate total height after scaling images proportionally to maxWidth
-        let totalHeight = images.reduce(0) { total, image in
-            let scaleFactor = maxWidth / image.size.width
-            return total + (image.size.height * scaleFactor)
-        }
-        
-        // Begin graphics context
-        UIGraphicsBeginImageContextWithOptions(CGSize(width: maxWidth, height: totalHeight), false, 0)
-        
-        var yOffset: CGFloat = 0
-        for image in images {
-            let scaleFactor = maxWidth / image.size.width
-            let newHeight = image.size.height * scaleFactor
-            image.draw(in: CGRect(x: 0, y: yOffset, width: maxWidth, height: newHeight))
-            yOffset += newHeight
-        }
-        
-        let stitchedImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        
-        return stitchedImage
-    }
-
 
