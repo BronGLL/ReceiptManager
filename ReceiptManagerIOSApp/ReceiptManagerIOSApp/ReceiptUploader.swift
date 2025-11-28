@@ -9,12 +9,13 @@ import Foundation
 import UIKit
 import FirebaseStorage
 import FirebaseAuth
+import FirebaseFirestore
 
 @MainActor
 final class ReceiptUploader {
 
     private let storage = Storage.storage()
-
+    private let db = Firestore.firestore()
     
     // Uploads the receipt image to Firebase Storage returning its url
     func uploadReceiptImage(
