@@ -6,7 +6,6 @@ import CropViewController
 struct CropView: View {
     let image: UIImage
     var onCancel: () -> Void
-    var onSkip: () -> Void
     var onCropped: (UIImage) -> Void
     
     @State private var showCropper = true
@@ -44,14 +43,7 @@ struct CropView: View {
                     .background(.ultraThinMaterial, in: Capsule())
                     
                     Spacer()
-                    
-                    Button("Skip Crop") {
-                        showCropper = false
-                        onSkip()
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
+
                 }
                 .padding()
                 Spacer()
@@ -123,6 +115,9 @@ struct MultiCropView: View {
     @Binding var images: [UIImage]
     @Binding var croppedImages: [UIImage]
     
+    let onCancel: () -> Void
+    let onDone: () -> Void
+    
     @Environment(\.dismiss) private var dismiss
     @State private var currentIndex: Int = 0
     @State private var backgroundOpacity: Double = 0.0 // <-- fade state
@@ -139,10 +134,13 @@ struct MultiCropView: View {
                 if !images.isEmpty {
                     TabView(selection: $currentIndex) {
                         ForEach(images.indices, id: \.self) { index in
+                            let displayImage = (croppedImages.count > index ? croppedImages[index] : images[index])
                             CropView(
-                                image: images[index],
-                                onCancel: { dismiss() },
-                                onSkip: { nextImage() },
+                                image: displayImage,
+                                onCancel: {
+                                    onCancel()
+                                    dismiss()
+                                },
                                 onCropped: { cropped in
                                     saveCropped(cropped, at: index)
                                     nextImage()
@@ -158,39 +156,6 @@ struct MultiCropView: View {
                     .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
                     .animation(.easeInOut, value: currentIndex)
                 }
-                
-                // Thumbnails strip
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .shadow(radius: 5, y: -2)
-                        .ignoresSafeArea(edges: .bottom)
-                        .frame(height: 80, alignment: .bottom)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(images.indices, id: \.self) { index in
-                                let thumbnail = (croppedImages.count > index ? croppedImages[index] : images[index])
-                                Image(uiImage: thumbnail)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 60, height: 60)
-                                    .clipped()
-                                    .cornerRadius(8)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(index == currentIndex ? Color.accentColor : Color.clear, lineWidth: 2)
-                                    )
-                                    .onTapGesture { currentIndex = index }
-                            }
-                        }
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-                    }
-                    .padding(.bottom, 12)
-                }
-                .frame(height: 100)
-                .frame(maxWidth: .infinity, alignment: .bottom)
                 
                 Text("Image \(currentIndex + 1) of \(images.count)")
                     .foregroundColor(.white)
@@ -216,6 +181,7 @@ struct MultiCropView: View {
         if currentIndex + 1 < images.count {
             currentIndex += 1
         } else {
+            onDone()
             dismiss()
         }
     }
