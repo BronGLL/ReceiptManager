@@ -88,14 +88,6 @@ struct ScanView: View {
             .navigationTitle("Scan")
             .cameraAccessAlert(camera: camera)
             .genericErrorAlert(message: $uploadErrorMessage)
-//            .multiCropperCover(
-//                finalImage: $finalImage,
-//                capturedItems: $capturedItems,
-//                croppedImages: $croppedImages,
-//                showCamera: $showCamera,
-//                camera: camera,
-//                runOCR: runOCR,
-//            )
         .fullScreenCover(
             isPresented: $showCropper,
             onDismiss: {

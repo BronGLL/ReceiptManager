@@ -156,39 +156,6 @@ struct MultiCropView: View {
                     .animation(.easeInOut, value: currentIndex)
                 }
                 
-//                // Thumbnails strip
-//                ZStack {
-//                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-//                        .fill(.ultraThinMaterial)
-//                        .shadow(radius: 5, y: -2)
-//                        .ignoresSafeArea(edges: .bottom)
-//                        .frame(height: 80, alignment: .bottom)
-//
-//                    ScrollView(.horizontal, showsIndicators: false) {
-//                        HStack(spacing: 8) {
-//                            ForEach(images.indices, id: \.self) { index in
-//                                let thumbnail = (croppedImages.count > index ? croppedImages[index] : images[index])
-//                                Image(uiImage: thumbnail)
-//                                    .resizable()
-//                                    .scaledToFill()
-//                                    .frame(width: 60, height: 60)
-//                                    .clipped()
-//                                    .cornerRadius(8)
-//                                    .overlay(
-//                                        RoundedRectangle(cornerRadius: 8)
-//                                            .stroke(index == currentIndex ? Color.accentColor : Color.clear, lineWidth: 2)
-//                                    )
-//                                    .onTapGesture { currentIndex = index }
-//                            }
-//                        }
-//                        .padding(.horizontal)
-//                        .padding(.vertical, 8)
-//                    }
-//                    .padding(.bottom, 12)
-//                }
-//                .frame(height: 100)
-//                .frame(maxWidth: .infinity, alignment: .bottom)
-                
                 Text("Image \(currentIndex + 1) of \(images.count)")
                     .foregroundColor(.white)
                     .padding(.bottom, 8)
