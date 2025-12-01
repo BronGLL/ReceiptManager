@@ -1,17 +1,20 @@
-# Ignore Xcode user data
+# Xcode user data (per-user, do not commit)
 **/*.xcuserdatad/
 **/*.xcuserdata/
 **/xcuserdata/
 
-# Ignore workspace user data
+# Workspace user data
 **/*.xcworkspace/xcuserdata/
-ReceiptManagerIOSApp/ReceiptManagerIOSApp.xcodeproj/xcshareddata/
-ReceiptManagerIOSApp/ReceiptManagerIOSApp.xcodeproj/project.xcworkspace/xcshareddata
 
-# Ignore macOS metadata
+# Keep shared schemes so others can build/run
+# (do NOT ignore xcshareddata)
+
+# macOS metadata
 .DS_Store
 
-# Ignore plist configuration files (like Firebase)
+# Secrets / environment-specific files
 **/GoogleService-Info.plist
-**/Info.plist
 
+# If your project relies on an Info.plist file, keep it tracked.
+# Uncomment the next line ONLY if you intentionally generate Info at build time.
+# **/Info.plist
