@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import PhotosUI
 import AVFoundation
 import UIKit
 import FirebaseAuth
@@ -65,6 +66,9 @@ struct ScanView: View {
     @State private var didSkipCrop = false
     @State private var showCropper = false
 
+    // Camera roll photo selection
+    @State private var selectedItems: [PhotosPickerItem] = []
+    @State private var cropperImages: [UIImage] = []
     // OCR
     @State private var ocrDocument: ReceiptDocument?
     private let ocrService = OCRService()
@@ -106,15 +110,13 @@ struct ScanView: View {
             }
         ) {
             MultiCropView(
-                images: Binding(
-                    get: { capturedItems.map { $0.image } },
-                    set: { _ in }
-                ),
+                images: $cropperImages,
                 croppedImages: $croppedImages,
                 onCancel: {
                     resetForRetake()
                 },
                 onDone: {
+                    capturedItems = cropperImages.map { CapturedImageItem(image: $0) }
                     showCropper = false
                 }
             )
@@ -344,6 +346,41 @@ struct ScanView: View {
             }
             .buttonStyle(.borderedProminent)
             .padding(.horizontal)
+            
+            PhotosPicker(
+                selection: $selectedItems,
+                maxSelectionCount: 0,  // unlimited photos
+                matching: .images
+            ) {
+                Label("Choose from Library", systemImage: "photo.on.rectangle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .padding(.horizontal)
+            .onChange(of: selectedItems) { items in
+                Task {
+                    var loadedImages: [UIImage] = []
+
+                    for item in items {
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let image = UIImage(data: data) {
+                            loadedImages.append(image)
+                        }
+                    }
+
+                    guard !loadedImages.isEmpty else { return }
+
+                    await MainActor.run {
+                        // Assign directly to cropperImages first
+                        cropperImages = loadedImages
+                        // Only flip the sheet if there are images
+                        if !cropperImages.isEmpty {
+                            showCropper = true
+                            camera.stopSession()
+                        }
+                    }
+                }
+            }
         }
         .padding()
     }
@@ -425,6 +462,8 @@ struct ScanView: View {
     private func resetForRetake() {
         croppedImages = []
         capturedItems = []
+        cropperImages = []
+        selectedItems = []
         finalImage = nil
         ocrDocument = nil
         selectedFolderId = nil
@@ -437,6 +476,7 @@ struct ScanView: View {
     private func resetAfterUpload() {
         croppedImages = []
         capturedItems = []
+        cropperImages = []
         finalImage = nil
         ocrDocument = nil
         selectedFolderId = nil

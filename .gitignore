@@ -17,4 +17,4 @@
 
 # If your project relies on an Info.plist file, keep it tracked.
 # Uncomment the next line ONLY if you intentionally generate Info at build time.
-# **/Info.plist
+**/Info.plist
