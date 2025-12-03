@@ -167,7 +167,6 @@ struct MultiCropView: View {
             backgroundOpacity = 1.0
         }
     }
-    
     private func saveCropped(_ image: UIImage, at index: Int) {
         if croppedImages.count > index {
             croppedImages[index] = image

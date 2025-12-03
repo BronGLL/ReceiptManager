@@ -13,23 +13,27 @@ import FirebaseAuth
 import FirebaseStorage
 import FirebaseFirestore
 
+// Wrapper model for each caputured image
 private struct CapturedImageItem: Identifiable {
     let id = UUID()
     let image: UIImage
 }
-
+// Function to stitch an array of UIImages into a single image for multi-cropping
 func stitchImagesVertically(_ images: [UIImage]) -> UIImage? {
+    // No images, do nothing
     guard !images.isEmpty else { return nil }
     
     // Scale down large images to avoid memory issues
     let maxAllowedWidth: CGFloat = 1080
     let maxWidth = images.map { $0.size.width }.max() ?? 0
+    // If images are smaller than the allowed width, no scaling needed
     let scaleFactor = min(1.0, maxAllowedWidth / maxWidth)
-    
+    // Create a scaled copy of each image
     let scaledImages = images.map { image -> UIImage in
         if scaleFactor == 1.0 { return image }
         let newSize = CGSize(width: image.size.width * scaleFactor,
                              height: image.size.height * scaleFactor)
+        // Go into a new graphics context at the smaller size
         UIGraphicsBeginImageContextWithOptions(newSize, false, 0)
         image.draw(in: CGRect(origin: .zero, size: newSize))
         let scaled = UIGraphicsGetImageFromCurrentImageContext() ?? image
@@ -39,8 +43,8 @@ func stitchImagesVertically(_ images: [UIImage]) -> UIImage? {
     
     // Total height after scaling
     let totalHeight = scaledImages.reduce(0) { $0 + $1.size.height }
+    // Use the maximum width in the images as the final width
     let finalWidth = scaledImages.map { $0.size.width }.max() ?? 0
-    
     UIGraphicsBeginImageContextWithOptions(CGSize(width: finalWidth, height: totalHeight), false, 0)
     
     var yOffset: CGFloat = 0
@@ -48,7 +52,7 @@ func stitchImagesVertically(_ images: [UIImage]) -> UIImage? {
         image.draw(at: CGPoint(x: 0, y: yOffset))
         yOffset += image.size.height
     }
-    
+    // Grab the stitched image from the context
     let stitchedImage = UIGraphicsGetImageFromCurrentImageContext()
     UIGraphicsEndImageContext()
     
@@ -56,7 +60,13 @@ func stitchImagesVertically(_ images: [UIImage]) -> UIImage? {
 }
 
 struct ScanView: View {
+    // Manages the camera
     @StateObject private var camera = CameraController()
+    // Current zoom level
+    @State private var currentZoomFactor: CGFloat = 1.0
+    // Zoom level at the end of the last pinch
+    @State private var lastZoomFactor: CGFloat = 1.0
+    // Toggle between landing screen and live camera screen
     @State private var showCamera = false
 
     // Capture and crop flow
@@ -70,13 +80,15 @@ struct ScanView: View {
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var cropperImages: [UIImage] = []
     // OCR
+    // The structured OCR result for the final image
     @State private var ocrDocument: ReceiptDocument?
+    // Populates the receipt document with relevant receipt info
     private let ocrService = OCRService()
 
     // Edit screen navigation
     @State private var navigateToEdit = false
 
-    // Confirmation (kept for folder selection after edit)
+    // Confirmation/Upload flow (kept for folder selection after edit)
     @State private var showConfirm = false
     @State private var isUploading = false
     @State private var uploadErrorMessage: String?
@@ -90,11 +102,15 @@ struct ScanView: View {
     var body: some View {
         contentView
             .navigationTitle("Scan")
+            // Show alert if camera permissions are denied
             .cameraAccessAlert(camera: camera)
+            // Show alert if upload does not work correctly
             .genericErrorAlert(message: $uploadErrorMessage)
+        // Present the cropping UI to cover the full screen
         .fullScreenCover(
             isPresented: $showCropper,
             onDismiss: {
+                // When the cropper is dismissed, stich images if needed and run OCR
                 Task {
                     let imagesToStitch = croppedImages
                     if !imagesToStitch.isEmpty,
@@ -109,35 +125,41 @@ struct ScanView: View {
                 }
             }
         ) {
+            // Content of the full-screen cropper
             MultiCropView(
                 images: $cropperImages,
                 croppedImages: $croppedImages,
                 onCancel: {
+                    // User canceled cropping, reset to a clean state
                     resetForRetake()
                 },
+                // User finished cropping
                 onDone: {
                     capturedItems = cropperImages.map { CapturedImageItem(image: $0) }
                     showCropper = false
                 }
             )
+            // Prevent swipe-down dismissal
             .interactiveDismissDisabled(true)
         }
-
+            // Navigation link to push EditReceiptsView when going to edit
             .editNavigationLink(
                 ocrDocument: ocrDocument,
                 isActive: $navigateToEdit,
                 onCancel: { resetForRetake() },
                 onSaveAndUpload: { edited in
-                    // 1) Dismiss Edit screen
+                    // Dismiss Edit screen
                     navigateToEdit = false
-                    // 2) Keep the edited document
+                    // Keep the edited document
                     ocrDocument = edited
+                    // Show confirmation dialog after editing
                     showConfirm = true
-                    
+                    // Clear out the images
                     croppedImages = []
                     capturedItems = []
                 }
             )
+            // Pop-up to pick a folder before final upload
             .folderPickerSheet(
                 isPresented: $showFolderPicker,
                 folders: folders,
@@ -152,17 +174,20 @@ struct ScanView: View {
                     showConfirm = true
                 }
             )
+            // Confimation dialog for upload
             .finalUploadConfirmation(
                 isPresented: $showConfirm,
                 isUploading: isUploading,
                 selectedFolderId: selectedFolderId,
                 folders: folders,
                 chooseFolder: {
+                    // Load folders first, then show folder picker
                     Task { await loadFolders() }
                     showFolderPicker = true
                 },
                 uploadAction: {
                     Task {
+                        // Only upload if we have the final document to use
                         if let doc = ocrDocument {
                             await uploadFinalImage(with: doc)
                         }
@@ -171,31 +196,48 @@ struct ScanView: View {
             )
     }
 
-    // MARK: - Split main branches
-
     @ViewBuilder
     private var contentView: some View {
         ZStack {
             if showCamera {
+                // Live camera mode
                 cameraContent
             } else {
+                // The initial landing screen with "Open Camera"
                 landingContent
             }
         }
+        // When camera is visible, hide buttons
         .navigationBarBackButtonHidden(showCamera)
         .toolbar(showCamera ? .hidden : .automatic, for: .navigationBar)
         .toolbar(showCamera ? .hidden : .automatic, for: .tabBar)
     }
-
+    // Main camera screen: preview + overlays + capture control
     private var cameraContent: some View {
         ZStack {
+            // Live camera preview
             CameraPreviewView(session: camera.session)
                 .ignoresSafeArea(.all)
-
+                // Add zooming feature to camera
+                .gesture(
+                                MagnificationGesture()
+                                    .onChanged { value in
+                                        // Calculate the potential new zoom based on the start of this gesture
+                                        let potentialZoom = self.lastZoomFactor * value
+                                        // Set a maximum zoom
+                                        self.currentZoomFactor = max(1.0, min(potentialZoom, 5.0))
+                                        camera.setZoom(self.currentZoomFactor)
+                                    }
+                                    .onEnded { value in
+                                        // Save the final zoom value so the next pinch starts from here
+                                        self.lastZoomFactor = self.currentZoomFactor
+                                    }
+                            )
+            // Crosshair to help align the receipt
             CenterReticle()
-
+            // Tip at the top of the screen
             VStack {
-                Text("Tip: Place receipt on a dark background for best results.")
+                Text("Tip: Isolate the receipt (no extra text) on a dark background for best results. ")
                     .font(.subheadline)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -203,7 +245,7 @@ struct ScanView: View {
                     .padding(.top, 12)
                 Spacer()
             }
-
+            // Capture contols are at the bottom
             VStack {
                 Spacer()
                 captureControls
@@ -212,40 +254,45 @@ struct ScanView: View {
             }
         }
         .onAppear {
+            // When camera screen appears, ask permission, then configure the session.
             Task {
                 await camera.checkPermissions()
                 if camera.isAuthorized {
                     await camera.configureSession()
                     camera.startSession()
+                    // Wait until the session is running
                     await waitUntilSessionRunning()
                 }
             }
         }
         .onDisappear {
+            // Stop camera when leaving this screen
             camera.stopSession()
         }
     }
-
+    // The control bar at the bottom of the camera screen
     private var captureControls: some View {
         HStack {
-            // MARK: - Thumbnail + Counter (Left side)
             Button {
                 // Open the crop view sheet (if images exist)
                 if !capturedItems.isEmpty {
+                    cropperImages = capturedItems.map { $0.image }
                     showCropper = true
+                    // Pause the camera while cropping
                     camera.stopSession()
                 }
             } label: {
                 ZStack(alignment: .topTrailing) {
 
-                    // Thumbnail preview
+                    // Thumbnail preview of last captured image
                     Group {
                         if let last = capturedItems.last?.image {
                             Image(uiImage: last)
                                 .resizable()
                                 .scaledToFill()
                         } else {
-                            Color.black.opacity(0.2)   // Visible placeholder
+                            // Placeholder when no images are captured yet
+                            Color.black.opacity(0.2)
                         }
                     }
                     .frame(width: 48, height: 48)
@@ -256,7 +303,7 @@ struct ScanView: View {
                     )
                     .opacity(capturedItems.isEmpty ? 0.4 : 1.0)
 
-                    // Counter Badge
+                    // Images captured counter badge
                     if !capturedItems.isEmpty {
                         Text("\(capturedItems.count)")
                             .font(.caption2.weight(.bold))
@@ -267,6 +314,7 @@ struct ScanView: View {
                     }
                 }
             }
+            // Disable thumbnail button if there is nothing to crop
             .disabled(capturedItems.isEmpty)
             .padding(.trailing, 24)
 
@@ -274,18 +322,21 @@ struct ScanView: View {
 
             Spacer()
 
-            // MARK: - Capture Button (center)
             Button {
                 Task {
                     do {
+                        // Take a photo using the CameraController
                         let image = try await camera.capturePhoto()
+                        // Update capturedItems on the main thread
                         await MainActor.run {
                             didSkipCrop = false
                             croppedImages = []
                             capturedItems.append(CapturedImageItem(image: image))
                         }
+                        // Uncomment below for single-shot behavior
                         //camera.stopSession()
                     } catch {
+                        // Show error if cqapture failed
                         await MainActor.run {
                             uploadErrorMessage = error.localizedDescription
                         }
@@ -302,12 +353,13 @@ struct ScanView: View {
                 }
             }
             .accessibilityLabel("Capture Photo")
+            // Disable capture while session isn't running
             .disabled(!camera.isSessionRunning)
 
             Spacer()
-
-            // MARK: - Close Button (right)
+            // Close button
             Button {
+                // Go back to anding screen and stop camera preview
                 withAnimation { showCamera = false }
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -320,7 +372,7 @@ struct ScanView: View {
         .padding(.horizontal, 12)
     }
 
-
+    // Landing screen that appears before the user opens the camera
     private var landingContent: some View {
         VStack(spacing: 16) {
             Image(systemName: "camera.viewfinder")
@@ -339,6 +391,7 @@ struct ScanView: View {
                 .padding(.horizontal)
 
             Button {
+                // Switch to the camera UI
                 withAnimation { showCamera = true }
             } label: {
                 Label("Open Camera", systemImage: "camera")
@@ -385,42 +438,46 @@ struct ScanView: View {
         .padding()
     }
 
-    // Wait until the session is reported running (with a short timeout)
+    // Wait until the session is reported running (with a short timeout) to avoid hitting capture before session start
     private func waitUntilSessionRunning(timeout: TimeInterval = 1.0) async {
         let start = Date()
-        while !camera.isSessionRunning && Date().timeIntervalSince(start) < timeout {
+        while !camera.isSessionRunning && Date().timeIntervalSince(start)
+            // Sleep in short intervals
+            < timeout {
             try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
         }
     }
-
-    // MARK: - OCR Integration
-
+    // Run OCR on the given image, then navigate to the edit view
     private func runOCR(on image: UIImage) async {
         do {
+            // Process the image with OCRService to get the ReceiptDocument
             let doc = try await ocrService.process(image: image)
             await MainActor.run {
                 ocrDocument = doc
                 finalImage = image
+                // Trigger navigation to the EditReceiptView
                 navigateToEdit = true
             }
         } catch {
+            // Show an error if OCR fails
             uploadErrorMessage = "OCR failed: \(error.localizedDescription)"
         }
     }
-    
-    
-    // MARK: - Upload Integration (now accepts edited doc)
+    // Upload the final image and edited document to the database
     private func uploadFinalImage(with document: ReceiptDocument) async {
+        // Prevent double-taps from starting multiple uploads
         guard !isUploading, let imageToUpload = finalImage else { return }
         isUploading = true
+        // Make sure that isUploading is reset
         defer { isUploading = false }
 
         do {
+            // Ensure the user is signed in
             guard let uid = Auth.auth().currentUser?.uid else {
                 uploadErrorMessage = "Not signed in."
                 return
             }
-
+            // Convert the document into a payload for Firebase
             guard let payload = document.makeFirestorePayload(folderID: selectedFolderId) else {
                 uploadErrorMessage = "Missing required fields (Store, Total, Date)."
                 return
@@ -434,17 +491,18 @@ struct ScanView: View {
                 receiptId: tempId
             )
 
-            // Write Firestore record
+            // Write Firestore record for the new receipt
             _ = try await firestore.createReceiptFromOCR(
                 ocr: document,
                 payload: payload,
                 imageURL: imageURL,
                 folderId: selectedFolderId
             )
-
+            // Clean up and return to landing state
             resetAfterUpload()
 
         } catch {
+            // Show backend errors
             uploadErrorMessage = error.localizedDescription
         }
     }
@@ -453,12 +511,12 @@ struct ScanView: View {
            
 
 
-
+    // Fetch current folders for the current user
     private func loadFolders() async {
         do { folders = try await firestore.fetchFolders() }
         catch { uploadErrorMessage = error.localizedDescription }
     }
-
+    // Reset state for retaking images while in camera mode
     private func resetForRetake() {
         croppedImages = []
         capturedItems = []
@@ -470,9 +528,14 @@ struct ScanView: View {
         showConfirm = false
         showCropper = false
         navigateToEdit = false
+        // Reset Zoom settings
+        currentZoomFactor = 1.0
+        lastZoomFactor = 1.0
+        camera.setZoom(1.0)
+        // Make sure session is still running
         if showCamera { camera.startSession() }
     }
-
+    // Reset the state after a successful upload and go back to landing screen
     private func resetAfterUpload() {
         croppedImages = []
         capturedItems = []
@@ -485,7 +548,7 @@ struct ScanView: View {
         showCamera = false
     }
 }
-
+// Center crosshair overlay
 private struct CenterReticle: View {
     var body: some View {
         GeometryReader { geo in
@@ -506,6 +569,7 @@ private struct CenterReticle: View {
             .shadow(radius: 2)
             .accessibilityHidden(true)
         }
+        // Does not intecept touches
         .allowsHitTesting(false)
     }
 }
@@ -514,9 +578,8 @@ private struct CenterReticle: View {
     NavigationStack { ScanView() }
 }
 
-// MARK: - View Modifiers / Helpers to reduce type-checking load
-
 private extension View {
+    // Presents an alert when the camera controller has no access
     func cameraAccessAlert(camera: CameraController) -> some View {
         alert("Camera Access Needed", isPresented: Binding(
             get: { camera.lastError == .unauthorized },
@@ -527,7 +590,7 @@ private extension View {
             Text("Please enable camera access in Settings to scan receipts.")
         }
     }
-
+    // Generic error alert
     func genericErrorAlert(message: Binding<String?>) -> some View {
         alert("Error", isPresented: Binding(
             get: { message.wrappedValue != nil },
@@ -538,7 +601,7 @@ private extension View {
             Text(message.wrappedValue ?? "Unknown error")
         }
     }
-
+    // Helper modifier that wires up MultiCropView
     func multiCropperCover(
             finalImage: Binding<UIImage?>,
             capturedItems: Binding<[CapturedImageItem]>,
@@ -559,7 +622,7 @@ private extension View {
                             }
                         }
                     }
-                    
+                    // If no images were captured, restart the camera
                     if capturedItems.wrappedValue.isEmpty {
                         camera.startSession()
                         showCamera.wrappedValue = true
@@ -573,6 +636,7 @@ private extension View {
                         ),
                         croppedImages: croppedImages,
                         onCancel: {
+                            // Reset the state when cropping is cancelled
                             croppedImages.wrappedValue = []
                             capturedItems.wrappedValue = []
                             finalImage.wrappedValue = nil
@@ -590,7 +654,7 @@ private extension View {
                 }
             )
         }
-
+    // Helper that pushes EditReceiptView in the navigation stack
     func editNavigationLink(
         ocrDocument: ReceiptDocument?,
         isActive: Binding<Bool>,
@@ -601,6 +665,7 @@ private extension View {
             NavigationLink(
                 isActive: isActive,
                 destination: {
+                    // Only show EditReceiptView if we have a document to edit
                     if let doc = ocrDocument {
                         EditReceiptView(
                             original: doc,
@@ -618,7 +683,7 @@ private extension View {
             .hidden()
         }
     }
-
+    // Sheet that shows a list of folders
     func folderPickerSheet(
         isPresented: Binding<Bool>,
         folders: [FirestoreService.FolderData],
@@ -643,7 +708,7 @@ private extension View {
             }
         }
     }
-
+    // Confirmation diaglog that appears before uploading a receipt
     func finalUploadConfirmation(
         isPresented: Binding<Bool>,
         isUploading: Bool,
@@ -653,17 +718,21 @@ private extension View {
         uploadAction: @escaping () -> Void
     ) -> some View {
         confirmationDialog(
+            // If a folder is already chosen, show its name in the title
             selectedFolderId == nil
                 ? "Upload this receipt?"
                 : "Upload to folder: \(folders.first(where: { $0.id == selectedFolderId })?.name ?? "Folder")",
             isPresented: isPresented,
             titleVisibility: .visible
         ) {
+            // Option to change folder before uploading
             Button("Choose Folder") { chooseFolder() }
+            // Main upload button
             Button(isUploading ? "Uploading..." : "Upload") {
                 uploadAction()
             }
             .disabled(isUploading)
+            // Cacnel option to the back to editing
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Review your edits, then upload.")
