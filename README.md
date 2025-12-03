@@ -2,6 +2,7 @@
 
 ReceiptManager is a SwiftUI-based iOS application for scanning receipts (single or multiple), cropping to remove noise, then extracting different receipt components (Store name, Date, Time, Items and their respective price, Tax, and Total). After the extraction is done, you are allowed to edit extracted fields, then upload both the image and receipt components to the database.
 
+
 ## Features
 
 * Multi-shot camera capture with live preview
@@ -41,9 +42,11 @@ ReceiptManager is a SwiftUI-based iOS application for scanning receipts (single 
    * Create a Firebase project
    * Enable authentication provider(s)
    * Enable Firestore & Storage
-   * `Add GoogleService-Info.plist` to the app target
+   * Add `GoogleService-Info.plist` to the app target
    
 ### 4. Update Info.plist
+* URL Schemes should have an item with the REVERSED_CLIENT_ID from `GoogleService-Info.plist`
+* Also be sure to go into the project settings and update the URL types and add the same REVERSED_CLIENT_ID
    
 ### 5. Build & run on a device
    * Sign in before uploading receipts
@@ -56,11 +59,14 @@ ReceiptManager is a SwiftUI-based iOS application for scanning receipts (single 
 * Users can log in through email/password or Sign In With Google
 
 
-### 2. Capture
+### 2. Capture or Upload receipta
 
 * `CameraController` sets up the `AVCaptureSession`
 * `CameraPreviewView` renders `AVCaptureVideoPreviewLayer` in SwiftUI
 * Captured frames are held in memory until cropping
+
+<img width="300" height="1000" alt="IMG_6397" src="https://github.com/user-attachments/assets/bb046fff-8658-4cd4-b806-4a0239147ccf" />
+
 
 ### 3. Crop
 
@@ -96,6 +102,7 @@ ReceiptManager is a SwiftUI-based iOS application for scanning receipts (single 
 
 * `StatisticsView` will display the receipt data statistics attached to the current user
 
+<img width="300" height="1000" alt="IMG_6398" src="https://github.com/user-attachments/assets/638ea8f4-be88-4916-8f1f-2ba8cb1a04c0" /> <img width="300" height="1000" alt="IMG_6399" src="https://github.com/user-attachments/assets/504adefe-9423-4ab5-bf87-113a7a376891" />
 ## Architecture Overview
 
 ### SwiftUI Views
