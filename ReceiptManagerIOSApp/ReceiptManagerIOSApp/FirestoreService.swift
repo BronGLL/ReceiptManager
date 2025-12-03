@@ -8,6 +8,14 @@ import Foundation
 import FirebaseFirestore
 import FirebaseAuth
 
+struct ReceiptItem: Codable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var quantity: Double?
+    var unitPrice: Double?
+    var totalPrice: Double?
+}
+
 struct Receipt: Codable, Identifiable {
     @DocumentID var id: String?
     var category: String
@@ -21,10 +29,29 @@ struct Receipt: Codable, Identifiable {
     var folderId: String?
     var imageUrl: String?
     var ocrDocument: String?
+    // NEW: embedded items array (optional so older docs decode fine)
+    var items: [ReceiptItem]?
 }
 
 class FirestoreService {
     private let db = Firestore.firestore()
+    
+    // Map OCR LineItems -> embedded ReceiptItem payloads
+    private func makeEmbeddedItems(from ocr: ReceiptDocument) -> [[String: Any]] {
+        ocr.lineItems.map { li in
+            let qty: Double? = li.quantity?.value
+            let unit: Double? = li.unitPrice.map { Double(Decimal($0.value.minorUnits) / 100 as NSDecimalNumber) }
+            let total: Double? = li.totalPrice.map { Double(Decimal($0.value.minorUnits) / 100 as NSDecimalNumber) }
+            
+            return [
+                "id": li.id.uuidString,
+                "name": li.name.value,
+                "quantity": qty as Any? ?? NSNull(),
+                "unitPrice": unit as Any? ?? NSNull(),
+                "totalPrice": total as Any? ?? NSNull()
+            ]
+        }
+    }
     
     func createReceiptFromOCR(
             ocr: ReceiptDocument,
@@ -49,6 +76,9 @@ class FirestoreService {
             let encodedReceiptData = try JSONEncoder().encode(ocr)
             let encodedReceiptString = encodedReceiptData.base64EncodedString()
 
+            // Map line items to embedded array
+            let itemsArray: [[String: Any]] = makeEmbeddedItems(from: ocr)
+
             var data: [String: Any] = [
                 "storeName": payload.storeName,
                 "category": payload.receiptCategory,
@@ -60,7 +90,9 @@ class FirestoreService {
                 "folderId": folderId ?? NSNull(),
                 "imageUrl": imageURL.absoluteString,
                 "createdAt": Timestamp(date: Date()),
-                "updatedAt": Timestamp(date: Date())
+                "updatedAt": Timestamp(date: Date()),
+                // NEW: embedded items array
+                "items": itemsArray
             ]
 
             try await docRef.setData(data)
@@ -91,7 +123,8 @@ class FirestoreService {
             "extractedText": extractedText,
             "tax": tax,
             "totalAmount": totalAmount,
-            "createdAt": Timestamp(date: Date())
+            "createdAt": Timestamp(date: Date()),
+            "updatedAt": Timestamp(date: Date())
         ]
 
         if let folderID = folderID {
@@ -222,8 +255,7 @@ class FirestoreService {
             throw NSError(
                 domain: "FirestoreService",
                 code: 401,
-                userInfo: [NSLocalizedDescriptionKey: "User not logged in"]
-            )
+                userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
         }
 
         let doc = try await db
@@ -244,11 +276,12 @@ class FirestoreService {
         return receipt
     }
 
-    // NEW: Update existing receipt with edited fields
+    // Update existing receipt with edited fields (and optionally items)
     func updateReceipt(
         id: String,
         with payload: ReceiptDocument.FirestorePayload,
-        imageURL: URL? = nil
+        imageURL: URL? = nil,
+        items: [ReceiptItem]? = nil
     ) async throws {
         guard let userId = Auth.auth().currentUser?.uid else {
             throw NSError(domain: "FirestoreService", code: 401,
@@ -275,6 +308,20 @@ class FirestoreService {
             data["imageUrl"] = imageURL.absoluteString
         }
 
+        if let items = items {
+            // Map to Firestore-friendly dictionaries
+            let arr: [[String: Any]] = items.map { it in
+                [
+                    "id": it.id,
+                    "name": it.name,
+                    "quantity": it.quantity as Any? ?? NSNull(),
+                    "unitPrice": it.unitPrice as Any? ?? NSNull(),
+                    "totalPrice": it.totalPrice as Any? ?? NSNull()
+                ]
+            }
+            data["items"] = arr
+        }
+
         try await db
             .collection("users")
             .document(userId)
@@ -283,4 +330,3 @@ class FirestoreService {
             .updateData(data)
     }
 }
-

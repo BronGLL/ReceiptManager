@@ -39,6 +39,10 @@ struct ReceiptDetailView: View {
 
                 totalsSection
 
+                if let items = workingReceipt.items, !items.isEmpty {
+                    itemsSection(items)
+                }
+
                 metadataSection
             }
             .padding()
@@ -150,6 +154,37 @@ private extension ReceiptDetailView {
         }
     }
 
+    func itemsSection(_ items: [ReceiptItem]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Items")
+                .font(.headline)
+
+            ForEach(items, id: \.id) { item in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.name)
+                        .font(.subheadline.bold())
+
+                    HStack {
+                        if let qty = item.quantity {
+                            Text("Qty: \(qty, specifier: "%g")")
+                        }
+                        if let unit = item.unitPrice {
+                            Text("Unit: $\(unit, specifier: "%.2f")")
+                        }
+                        if let total = item.totalPrice {
+                            Text("Total: $\(total, specifier: "%.2f")")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.clear)
+            }
+        }
+    }
+
     var metadataSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Created")
@@ -162,7 +197,7 @@ private extension ReceiptDetailView {
             Text("Last Edited")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            Text(workingReceipt.updatedAt, style: .date)    // <-- use the property directly
+            Text(workingReceipt.updatedAt, style: .date)
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -226,9 +261,33 @@ private extension ReceiptDetailView {
             return
         }
 
+        // Map edited line items -> embedded ReceiptItem array (major units)
+        let itemsArray: [ReceiptItem] = updated.lineItems.map { li in
+            let unit: Double? = li.unitPrice.map { money in
+                let dec = Decimal(money.value.minorUnits) / 100
+                return NSDecimalNumber(decimal: dec).doubleValue
+            }
+            let total: Double? = li.totalPrice.map { money in
+                let dec = Decimal(money.value.minorUnits) / 100
+                return NSDecimalNumber(decimal: dec).doubleValue
+            }
+            return ReceiptItem(
+                id: li.id.uuidString,
+                name: li.name.value,
+                quantity: li.quantity?.value,
+                unitPrice: unit,
+                totalPrice: total
+            )
+        }
+
         do {
-            try await firestore.updateReceipt(id: id, with: payload, imageURL: workingReceipt.imageUrl.flatMap(URL.init(string:)))
-            // Update local working receipt to reflect changes
+            try await firestore.updateReceipt(
+                id: id,
+                with: payload,
+                imageURL: workingReceipt.imageUrl.flatMap(URL.init(string:)),
+                items: itemsArray
+            )
+            // Update local working receipt to reflect changes (including items)
             await MainActor.run {
                 workingReceipt = Receipt(
                     id: workingReceipt.id,
@@ -242,10 +301,9 @@ private extension ReceiptDetailView {
                     updatedAt: Date(),
                     folderId: payload.folderID,
                     imageUrl: workingReceipt.imageUrl,
-                    ocrDocument: workingReceipt.ocrDocument
+                    ocrDocument: workingReceipt.ocrDocument,
+                    items: itemsArray
                 )
-                // If your Receipt struct includes updatedAt, update it here too.
-                // workingReceipt.updatedAt = Date()
                 showingEdit = false
                 alertMessage = "Receipt updated."
             }
@@ -273,6 +331,61 @@ private extension ReceiptDetailView {
             return DetectedDate(value: date, rawText: ISO8601DateFormatter().string(from: date), confidence: 1.0, boundingBox: nil, candidates: [], fieldType: .date, isUserVerified: true)
         }
 
+        // Map embedded ReceiptItem -> LineItem so the edit screen is prefilled
+        let mappedItems: [LineItem] = (receipt.items ?? []).map { it in
+            let name = DetectedString(
+                value: it.name,
+                rawText: it.name,
+                confidence: 1.0,
+                boundingBox: nil,
+                candidates: [],
+                fieldType: .itemName,
+                isUserVerified: true
+            )
+
+            let qty: DetectedValue<Double>? = it.quantity.map { q in
+                DetectedValue<Double>(
+                    value: q,
+                    rawText: String(format: "%g", q),
+                    confidence: 1.0,
+                    boundingBox: nil,
+                    candidates: [],
+                    fieldType: .itemQuantity,
+                    isUserVerified: true
+                )
+            }
+
+            let unit: DetectedMoney? = it.unitPrice.map { u in
+                let dec = Decimal(u)
+                return DetectedMoney(
+                    value: MoneyAmount.from(decimal: dec),
+                    rawText: NSDecimalNumber(decimal: dec).stringValue,
+                    confidence: 1.0,
+                    boundingBox: nil,
+                    candidates: [],
+                    fieldType: .itemUnitPrice,
+                    isUserVerified: true
+                )
+            }
+
+            let total: DetectedMoney? = it.totalPrice.map { t in
+                let dec = Decimal(t)
+                return DetectedMoney(
+                    value: MoneyAmount.from(decimal: dec),
+                    rawText: NSDecimalNumber(decimal: dec).stringValue,
+                    confidence: 1.0,
+                    boundingBox: nil,
+                    candidates: [],
+                    fieldType: .itemTotalPrice,
+                    isUserVerified: true
+                )
+            }
+
+            // Preserve the original UUID if the string is a valid UUID, else create a new one
+            let uuid = UUID(uuidString: it.id) ?? UUID()
+            return LineItem(id: uuid, name: name, quantity: qty, unitPrice: unit, totalPrice: total)
+        }
+
         return ReceiptDocument(
             rawText: receipt.extractedText,
             store: detString(receipt.storeName, field: .storeName),
@@ -282,7 +395,7 @@ private extension ReceiptDetailView {
             subtotal: nil,
             tax: detMoney(receipt.tax, field: .tax),
             total: detMoney(receipt.totalAmount, field: .total),
-            lineItems: [],
+            lineItems: mappedItems,
             additionalFields: [],
             tokens: tokens
         )
