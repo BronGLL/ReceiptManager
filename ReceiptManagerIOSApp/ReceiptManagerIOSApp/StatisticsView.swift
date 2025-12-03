@@ -291,7 +291,7 @@ struct StatisticsView: View {
                 }
             }
 
-            // New: Breakdown by store underneath the chart
+            // Breakdown by store underneath the chart
             VStack(alignment: .leading, spacing: 8) {
                 Text("By Store")
                     .font(.headline)
@@ -312,6 +312,9 @@ struct StatisticsView: View {
                 }
             }
             .padding(.top, 8)
+
+            // Spending statistics
+            spendingStatsSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
@@ -320,6 +323,86 @@ struct StatisticsView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(.quaternary, lineWidth: 1)
         )
+    }
+
+    // MARK: - Spending Stats
+
+    private var spendingStatsSection: some View {
+        let totalAcrossBuckets = vm.buckets.reduce(0.0) { $0 + $1.total }
+        let receiptCount = vm.filteredReceipts.count
+        let avgPerReceipt = receiptCount > 0 ? totalAcrossBuckets / Double(receiptCount) : 0.0
+
+        // Average per day
+        let avgPerDay: Double = {
+            guard !vm.buckets.isEmpty else { return 0.0 }
+            let cal = Calendar.current
+
+            switch vm.selectedRange {
+            case .thisMonth, .custom:
+                // daily buckets: average bucket total
+                let sum = totalAcrossBuckets
+                return sum / Double(vm.buckets.count)
+
+            case .last3Months, .thisYear:
+                // monthly buckets: average per-day by dividing each month by its days, then averaging
+                let perDayValues: [Double] = vm.buckets.map { b in
+                    let days = cal.range(of: .day, in: .month, for: b.start)?.count ?? 30
+                    return days > 0 ? (b.total / Double(days)) : 0.0
+                }
+                let sum = perDayValues.reduce(0, +)
+                return sum / Double(perDayValues.count)
+            }
+        }()
+
+        // Average per month
+        let avgPerMonth: Double = {
+            guard !vm.buckets.isEmpty else { return 0.0 }
+            let cal = Calendar.current
+
+            switch vm.selectedRange {
+            case .last3Months, .thisYear:
+                // monthly buckets: mean of monthly totals
+                return totalAcrossBuckets / Double(vm.buckets.count)
+
+            case .thisMonth, .custom:
+                // daily buckets: group by (year, month) and average monthly sums
+                var monthlyTotals: [DateComponents: Double] = [:]
+                for b in vm.buckets {
+                    let comps = cal.dateComponents([.year, .month], from: b.start)
+                    monthlyTotals[comps, default: 0.0] += b.total
+                }
+                let totals = Array(monthlyTotals.values)
+                let sum = totals.reduce(0, +)
+                return totals.isEmpty ? 0.0 : sum / Double(totals.count)
+            }
+        }()
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Spending Stats")
+                .font(.headline)
+
+            HStack {
+                Text("Average per day")
+                Spacer()
+                Text("$\(avgPerDay, specifier: "%.2f")").bold()
+            }
+            HStack {
+                Text("Average per month")
+                Spacer()
+                Text("$\(avgPerMonth, specifier: "%.2f")").bold()
+            }
+            HStack {
+                Text("Receipts in range")
+                Spacer()
+                Text("\(receiptCount)").bold()
+            }
+            HStack {
+                Text("Average per receipt")
+                Spacer()
+                Text("$\(avgPerReceipt, specifier: "%.2f")").bold()
+            }
+        }
+        .padding(.top, 8)
     }
 }
 
