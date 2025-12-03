@@ -3,7 +3,6 @@ import SwiftUI
 struct ReceiptsView: View {
     // MARK: - State
     @State private var showingFolderSheet = false
-    @State private var showingMoveSheet = false
     @State private var newFolderName = ""
     @State private var newFolderDescription = ""
     @State private var alertMessage: String?
@@ -26,32 +25,39 @@ struct ReceiptsView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(receipts) { receipt in
-                        HStack {
-                            Image(systemName: "doc.text")
-                                .foregroundStyle(.tint)
-                            VStack(alignment: .leading) {
-                                Text(receipt.storeName)
-                                    .font(.headline)
-                                Text(receipt.date, style: .date)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing) {
-                                Text("$\(receipt.totalAmount, specifier: "%.2f")")
-                                    .font(.headline)
-                                if let folderId = receipt.folderId,
-                                   let folderName = folders.first(where: { $0.id == folderId })?.name {
-                                    Text(folderName)
-                                        .font(.caption)
+                        NavigationLink(destination: ReceiptDetailView(receipt: receipt)) {
+                            HStack {
+                                Image(systemName: "doc.text")
+                                    .foregroundStyle(.tint)
+                                VStack(alignment: .leading) {
+                                    Text(receipt.storeName)
+                                        .font(.headline)
+                                    Text(receipt.date, style: .date)
+                                        .font(.subheadline)
                                         .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing) {
+                                    Text("$\(receipt.totalAmount, specifier: "%.2f")")
+                                        .font(.headline)
+                                    if let folderId = receipt.folderId,
+                                       let folderName = folders.first(where: { $0.id == folderId })?.name {
+                                        Text(folderName)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            selectedReceipt = receipt
-                            showingMoveSheet = true
+                        // Press-and-hold to assign folder
+                        .contextMenu {
+                            Button {
+                                selectedReceipt = receipt
+                                // Present the existing assign folder sheet
+                                showAssignFolderSheet(for: receipt)
+                            } label: {
+                                Label("Assign to Folder…", systemImage: "folder.badge.plus")
+                            }
                         }
                     }
                 }
@@ -110,10 +116,9 @@ struct ReceiptsView: View {
         .sheet(isPresented: $showingFolderSheet) {
             folderSheet
         }
-        .sheet(isPresented: $showingMoveSheet) {
-            if let selectedReceipt {
-                moveReceiptSheet(for: selectedReceipt)
-            }
+        // Existing assign folder sheet – presented when selectedReceipt is set
+        .sheet(item: $selectedReceipt) { receipt in
+            moveReceiptSheet(for: receipt)
         }
     }
 
@@ -156,7 +161,8 @@ struct ReceiptsView: View {
                         set: { newFolderId in
                             Task {
                                 await moveReceipt(receipt, to: newFolderId)
-                                showingMoveSheet = false
+                                // Dismiss by clearing selectedReceipt
+                                selectedReceipt = nil
                             }
                         }
                     )) {
@@ -170,10 +176,17 @@ struct ReceiptsView: View {
             .navigationTitle("Assign Folder")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showingMoveSheet = false }
+                    Button("Cancel") { selectedReceipt = nil }
                 }
             }
         }
+    }
+
+    // Helper to present assign folder sheet
+    private func showAssignFolderSheet(for receipt: Receipt) {
+        // Using .sheet(item:) above; just ensure folders are loaded
+        Task { await loadFolders() }
+        selectedReceipt = receipt
     }
 
     // MARK: - Folder & Receipt Actions
