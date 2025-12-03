@@ -14,8 +14,9 @@ struct ContentView: View {
     @State private var selectedTab: Tab = .scan
     
     enum Tab {
-        case scan, receipts, stats
+        case scan, receipts, stats, profile
     }
+    // Creates View for User if they have signed in or not
     var body: some View {
         Group {
             switch session.state {
@@ -44,15 +45,6 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             NavigationStack {
                 ScanView()
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button {
-                                Task { await session.signOut() }
-                            } label: {
-                                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                            }
-                        }
-                    }
             }
             .tabItem {
                 Label("Scan", systemImage: "camera.viewfinder")
@@ -74,6 +66,15 @@ struct ContentView: View {
                 Label("Stats", systemImage: "chart.bar")
             }
             .tag(Tab.stats)   // <-- important
+            
+            NavigationStack {
+                ProfileView(session: session)
+            }
+            .tabItem {
+                Image(systemName: "person.crop.circle")
+                Text("Profile")
+            }
+            .tag(Tab.profile)
         }
     }
 }
@@ -126,6 +127,7 @@ private struct LandingView: View {
                         Label("Get Started", systemImage: "arrow.right.circle.fill")
                             .frame(maxWidth: .infinity)
                     }
+                    .accessibilityIdentifier("getStartedButton")
                     .buttonStyle(.borderedProminent)
                     .padding(.top, 8)
                 }
