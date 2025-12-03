@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct ReceiptsView: View {
-    // MARK: - State
     @State private var showingFolderSheet = false
     @State private var newFolderName = ""
     @State private var newFolderDescription = ""
@@ -15,10 +14,45 @@ struct ReceiptsView: View {
 
     private let firestoreService = FirestoreService()
 
-    // MARK: - Body
     var body: some View {
         List {
-            // MARK: - Receipts Section
+            // Shows user folders
+            Section("Folders") {
+                ForEach(folders, id: \.id) { folder in
+                    NavigationLink(destination: FolderDetailView(folder: folder)) {
+                        HStack {
+                            Image(systemName: "folder")
+                                .foregroundStyle(.yellow)
+                            VStack(alignment: .leading) {
+                                Text(folder.name)
+                                    .font(.headline)
+                                Text(folder.description)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .onDelete(perform: deleteFolders)
+
+                Button {
+                    showingFolderSheet = true
+                } label: {
+                    Label("Create New Folder", systemImage: "plus.square")
+                        .accessibilityIdentifier("createFolderButton")
+                }
+            }
+            
+            Section {
+                Button {
+                    selectedTab = .scan
+                } label: {
+                    Label("Add Receipt", systemImage: "plus.circle")
+                        .accessibilityIdentifier("addReceiptButton")
+                }
+            }
+            
+            // Shows user recent receipts
             Section("Recent Receipts") {
                 if receipts.isEmpty {
                     Text("No receipts yet. Add one below!")
@@ -63,42 +97,9 @@ struct ReceiptsView: View {
                 }
             }
 
-            // MARK: - Add Receipt Button
-            Section {
-                Button {
-                    selectedTab = .scan
-                } label: {
-                    Label("Add Receipt", systemImage: "plus.circle")
-                }
-            }
-
-            // MARK: - Folders Section
-            Section("Folders") {
-                ForEach(folders, id: \.id) { folder in
-                    NavigationLink(destination: FolderDetailView(folder: folder)) {
-                        HStack {
-                            Image(systemName: "folder")
-                                .foregroundStyle(.yellow)
-                            VStack(alignment: .leading) {
-                                Text(folder.name)
-                                    .font(.headline)
-                                Text(folder.description)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                .onDelete(perform: deleteFolders)
-
-                Button {
-                    showingFolderSheet = true
-                } label: {
-                    Label("Create New Folder", systemImage: "plus.square")
-                }
-            }
         }
         .navigationTitle("Receipts")
+        .accessibilityIdentifier("receiptsScreen")
         .onAppear {
             Task {
                 await loadFolders()
@@ -122,7 +123,6 @@ struct ReceiptsView: View {
         }
     }
 
-    // MARK: - Folder Creation Sheet
     private var folderSheet: some View {
         VStack(spacing: 20) {
             Text("New Folder")

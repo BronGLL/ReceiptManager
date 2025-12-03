@@ -37,6 +37,7 @@ struct StatisticsView: View {
             .padding()
         }
         .navigationTitle("Statistics")
+        .accessibilityIdentifier("statisticsScreen")
         .task { await vm.loadIfNeeded() }
         .refreshable {
             await vm.reload()

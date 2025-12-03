@@ -118,7 +118,7 @@ struct EditReceiptView: View {
                     .multilineTextAlignment(.trailing)
                 }
             }
-
+            // Allows guests to edit items in a receipt
             Section("Items") {
                 if items.isEmpty {
                     Text("No items detected").foregroundStyle(.secondary)
