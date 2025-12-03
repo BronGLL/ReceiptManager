@@ -27,6 +27,7 @@ struct SignInView: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.emailAddress)
                         .autocorrectionDisabled()
+                        .accessibilityIdentifier("emailField")
                     SecureField("Password", text: $password)
                         .onSubmit {
                             // Pressing return on the password field triggers the sign in
@@ -34,6 +35,7 @@ struct SignInView: View {
                                 await session.signIn(email: trimmedEmail, password: password)
                             } }
                         }
+                        .accessibilityIdentifier("passwordField")
                 }
                 // Email/password actions, Sign in, Create Account
                 Section {
@@ -44,6 +46,7 @@ struct SignInView: View {
                     } label: {
                         Label("Sign In", systemImage: "arrow.right.circle.fill")
                     }
+                    .accessibilityIdentifier("signInButton")
                     .disabled(!isValid)
 
                     Button {
@@ -52,7 +55,9 @@ struct SignInView: View {
                         } }
                     } label: {
                         Label("Create Account", systemImage: "person.badge.plus")
+
                     }
+                    .accessibilityIdentifier("createAccountButton")
                     .disabled(!isValid)
                 }
 
@@ -62,7 +67,9 @@ struct SignInView: View {
                         Task { await runBusy { await signInWithGoogleTapped() } }
                     } label: {
                         Label("Sign in with Google", systemImage: "g.circle")
+
                     }
+                    .accessibilityIdentifier("googleSignInButton")
                 }
                 // Error display section (if triggered)
                 if case .error(let message) = session.state {

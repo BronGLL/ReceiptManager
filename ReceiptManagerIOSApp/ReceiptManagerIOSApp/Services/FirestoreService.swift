@@ -213,6 +213,24 @@ class FirestoreService {
         }
     }
     
+    func deleteReceipt(id: String) async throws {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(
+                domain: "FirestoreService",
+                code: 401,
+                userInfo: [NSLocalizedDescriptionKey: "User not logged in"]
+            )
+        }
+
+        try await db
+            .collection("users")
+            .document(userId)
+            .collection("receipts")
+            .document(id)
+            .delete()
+    }
+
+    
     func fetchReceipts(inFolder folderId: String) async throws -> [Receipt] {
         guard let userId = Auth.auth().currentUser?.uid else {
             throw NSError(domain: "FirestoreService", code: 401,

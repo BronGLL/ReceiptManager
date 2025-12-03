@@ -21,8 +21,10 @@ struct AddReceiptView: View {
         Form {
             Section("Receipt Details") {
                 TextField("Store Name", text: $storeName)
+                    .accessibilityIdentifier("storeNameField")
                 TextField("Total Amount", text: $totalAmount)
                     .keyboardType(.decimalPad)
+                    .accessibilityIdentifier("totalAmountField")
             }
 
             Section("Assign to Folder") {
@@ -42,6 +44,7 @@ struct AddReceiptView: View {
             Button("Save Receipt") {
                 Task { await saveReceipt() }
             }
+            .accessibilityIdentifier("saveReceiptButton")
             .disabled(storeName.isEmpty || totalAmount.isEmpty)
         }
         .navigationTitle("Add Receipt")
