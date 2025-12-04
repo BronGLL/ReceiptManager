@@ -14,7 +14,7 @@ struct FolderDetailView: View {
     @State private var alertMessage: String?
 
     private let firestoreService = FirestoreService()
-
+    // Builds view that lets user see list of receipts in a folder
     var body: some View {
         List {
             if isLoading {
@@ -44,6 +44,7 @@ struct FolderDetailView: View {
             }
         }
         .navigationTitle(folder.name)
+        .accessibilityIdentifier("folderDetailScreen")
         .onAppear {
             Task { await loadReceipts() }
         }
@@ -56,7 +57,9 @@ struct FolderDetailView: View {
             Text(alertMessage ?? "")
         }
     }
-
+    
+    
+    // Loads receipts for folder
     private func loadReceipts() async {
         isLoading = true
         do {

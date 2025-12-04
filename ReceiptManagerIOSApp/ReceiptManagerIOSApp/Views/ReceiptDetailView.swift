@@ -19,6 +19,9 @@ struct ReceiptDetailView: View {
     @State private var showingEdit = false
     @State private var workingReceipt: Receipt
     @State private var alertMessage: String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingDeleteConfirm = false
+
 
     private let firestore = FirestoreService()
 
@@ -27,6 +30,7 @@ struct ReceiptDetailView: View {
         _workingReceipt = State(initialValue: receipt)
     }
 
+    // Builds the view for the user
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -48,10 +52,18 @@ struct ReceiptDetailView: View {
             .padding()
         }
         .navigationTitle("Receipt Details")
+        .accessibilityIdentifier("receiptDetailScreen")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
                 Button("Edit") { showingEdit = true }
+                .accessibilityIdentifier("editReceiptButton")
+
+                Button(role: .destructive) {
+                    showingDeleteConfirm = true
+                } label: {
+                    Image(systemName: "trash")
+                }
             }
         }
         .task { await loadImage() }
@@ -66,6 +78,17 @@ struct ReceiptDetailView: View {
                 )
             }
         }
+        .alert(
+            "Delete this receipt?",
+            isPresented: $showingDeleteConfirm
+        ) {
+            Button("Delete Receipt", role: .destructive) {
+                Task { await deleteReceipt() }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will permanently delete the receipt.")
+        }
         .alert("Update", isPresented: Binding(
             get: { alertMessage != nil },
             set: { _ in alertMessage = nil }
@@ -77,9 +100,9 @@ struct ReceiptDetailView: View {
     }
 }
 
-// MARK: - Subviews
 private extension ReceiptDetailView {
 
+    // Displays the image within the UI View to the user
     var imageSection: some View {
         Group {
             if let img = receiptImage {
@@ -117,7 +140,8 @@ private extension ReceiptDetailView {
             }
         }
     }
-
+    
+    // Shows information regarding the store to the customer
     var storeInfoSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(workingReceipt.storeName)
@@ -133,6 +157,7 @@ private extension ReceiptDetailView {
         }
     }
 
+    // Shows total and tax for receipt that was scanned
     var totalsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Receipt Summary")
@@ -153,7 +178,7 @@ private extension ReceiptDetailView {
             }
         }
     }
-
+    // Shows the items of each receipt that was able to be scanned or entered manually
     func itemsSection(_ items: [ReceiptItem]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Items")
@@ -184,7 +209,7 @@ private extension ReceiptDetailView {
             }
         }
     }
-
+    // Displays Metadata of receipt to user from the last edit
     var metadataSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Created")
@@ -202,11 +227,47 @@ private extension ReceiptDetailView {
                 .foregroundColor(.secondary)
         }
     }
+    
+    func deleteReceipt() async {
+        guard let id = workingReceipt.id else {
+            alertMessage = "Missing receipt ID."
+            return
+        }
+
+        do {
+            try await firestore.deleteReceipt(id: id)
+
+            if let urlString = workingReceipt.imageUrl {
+                let ref = Storage.storage().reference(forURL: urlString)
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    ref.delete { error in
+                        if let error {
+                            continuation.resume(throwing: error)
+                        } else {
+                            continuation.resume(returning: ())
+                        }
+                    }
+                }
+
+            }
+
+            await MainActor.run {
+                dismiss()
+            }
+
+        } catch {
+            await MainActor.run {
+                alertMessage = "Delete failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
 }
 
-// MARK: - Helpers
-private extension ReceiptDetailView {
 
+private extension ReceiptDetailView {
+    
+    // Loads image from URL in cloud storage
     func loadImage() async {
         guard let urlString = workingReceipt.imageUrl else {
             imageErrorMessage = "Missing image URL."
@@ -218,7 +279,7 @@ private extension ReceiptDetailView {
 
         do {
             let ref = Storage.storage().reference(forURL: urlString)
-
+            // ASYNC load
             let data: Data = try await withCheckedThrowingContinuation { continuation in
                 ref.getData(maxSize: 20_000_000) { data, error in
                     if let error = error {
@@ -245,7 +306,7 @@ private extension ReceiptDetailView {
             imageErrorMessage = error.localizedDescription
         }
     }
-
+    
     func saveEdits(_ updated: ReceiptDocument) async {
         guard let id = workingReceipt.id else {
             alertMessage = "Missing receipt ID."
